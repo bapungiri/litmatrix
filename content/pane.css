@@ -1,0 +1,128 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: "Segoe UI", sans-serif;
+    background: #0f1115;
+    color: #e8ecf2;
+}
+
+.header,
+header {
+    background: #161925;
+}
+
+.toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid #222836;
+}
+
+.toolbar .title {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.toolbar .actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.toolbar input[type="search"] {
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid #30394a;
+    background: #0f1115;
+    color: #e8ecf2;
+    min-width: 220px;
+}
+
+.toolbar button {
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid #2d8bd8;
+    background: linear-gradient(135deg, #1f75d1, #1c8df2);
+    color: white;
+    cursor: pointer;
+}
+
+.toolbar button:hover {
+    filter: brightness(1.08);
+}
+
+main {
+    overflow: auto;
+    height: calc(100vh - 52px);
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+thead {
+    background: #161925;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+th,
+td {
+    text-align: left;
+    padding: 10px;
+    border-bottom: 1px solid #1e2230;
+}
+
+th {
+    user-select: none;
+    cursor: pointer;
+    font-size: 12px;
+    letter-spacing: 0.01em;
+    color: #9fb3c8;
+}
+
+tbody tr:hover {
+    background: #171c28;
+}
+
+td.annotation {
+    max-width: 420px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tag-pill {
+    display: inline-block;
+    padding: 2px 6px;
+    margin-right: 4px;
+    border-radius: 4px;
+    background: #253144;
+    color: #bed2e6;
+    font-size: 11px;
+}
+
+.badge-color {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.badge-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    border: 1px solid #0006;
+}
+
+.empty-state {
+    padding: 32px;
+    color: #8a93a5;
+    text-align: center;
+}

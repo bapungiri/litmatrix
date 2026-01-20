@@ -1,0 +1,28 @@
+{
+    "manifest_version": 2,
+    "name": "Zotero Annotable",
+    "version": "0.1.0",
+    "description": "Adds an annotations tab listing all highlights in a table.",
+    "applications": {
+        "gecko": {
+            "id": "zotero-annotable@bapungiri",
+            "strict_min_version": "115.0"
+        }
+    },
+    "background": {
+        "scripts": [
+            "background.js"
+        ]
+    },
+    "icons": {
+        "48": "content/icon.svg",
+        "96": "content/icon.svg"
+    },
+    "browser_action": {
+        "default_title": "Open Annotations Tab",
+        "default_icon": "content/icon.svg"
+    },
+    "permissions": [
+        "storage"
+    ]
+}

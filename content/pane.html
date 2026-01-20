@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Annotations</title>
+    <link rel="stylesheet" href="pane.css" />
+</head>
+
+<body>
+    <header class="toolbar">
+        <div class="title">Annotations</div>
+        <div class="actions">
+            <input id="filter" type="search" placeholder="Filter annotations" aria-label="Filter annotations" />
+            <button id="refresh">Refresh</button>
+        </div>
+    </header>
+    <main>
+        <table id="annotations-table">
+            <thead>
+                <tr>
+                    <th data-key="annotation">Annotation</th>
+                    <th data-key="color">Color</th>
+                    <th data-key="tags">Tags</th>
+                    <th data-key="comment">Comments</th>
+                    <th data-key="citationKey">Citation Key</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </main>
+    <script src="pane.js"></script>
+</body>
+
+</html>
