@@ -1,4 +1,4 @@
-# Packs plugin/ into dist/zotero-annotable-<version>.xpi (a zip with forward-slash paths).
+# Packs plugin/ into dist/litmatrix-<version>.xpi (a zip with forward-slash paths).
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 
@@ -6,7 +6,7 @@ $src = Join-Path $PSScriptRoot 'plugin'
 $version = (Get-Content -Raw (Join-Path $src 'manifest.json') | ConvertFrom-Json).version
 $dist = Join-Path $PSScriptRoot 'dist'
 New-Item -ItemType Directory -Force $dist | Out-Null
-$xpi = Join-Path $dist "zotero-annotable-$version.xpi"
+$xpi = Join-Path $dist "litmatrix-$version.xpi"
 if (Test-Path $xpi) { Remove-Item $xpi }
 
 $zip = [System.IO.Compression.ZipFile]::Open($xpi, 'Create')

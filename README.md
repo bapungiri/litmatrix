@@ -1,10 +1,12 @@
-# Zotero Annotable
+# LitMatrix
 
-A Zotero 7–9 plugin that shows every annotation in your library in one place, grouped by **color meaning**, **tag**, **paper (citekey)** or **type**, so you can see at a glance what you highlighted across papers.
+A literature-review matrix for Zotero 7–9. Papers are rows and your highlight-color meanings are columns, so you can see at a glance the questions, results, methods and critiques across everything you've read on a topic. A second view lists every annotation in a Notion-style table, where you can edit, recolor and tag them.
+
+> LitMatrix was previously called **Zotero Annotable**. Installing LitMatrix copies over your color meanings and layout the first time it starts; uninstall Zotero Annotable afterwards.
 
 ## Features
 
-- **Annotation Browser** tab (Tools → Annotation Browser), or a separate window (Tools → Annotation Browser (Window)) to keep beside the PDF reader.
+- Open it from **Tools → LitMatrix** (a tab) or **Tools → LitMatrix (Window)** to keep it beside the PDF reader.
 - **Papers view** (default; switch with *Papers | Annotations*): one row per paper, built for literature research.
   - Columns are Citekey, Year and Title, with optional Authors, Paper tags and annotation count.
   - Then comes one column per highlight color and one per underline color, titled with their color meanings. Each cell lists that paper's annotations of that color and type as bullets, with comments underneath.
@@ -15,7 +17,7 @@ A Zotero 7–9 plugin that shows every annotation in your library in one place, 
   - Add, remove or drag-reorder columns. Rows can be grouped by paper tag.
   - *Copy Markdown* produces one literature note per paper, with a `###` heading per column.
 - **Notion-style table**: Annotation, Paper tags, Annotation tags, Comment and Citekey columns by default. Use *Columns ▾* to add Page, Title, Authors, Year, Type or Added. Drag a header's right edge to resize a column, and click a header to sort (ascending → descending → back to paper/page order). Rows can show 1 line, 3 lines or the full text.
-- **Filter builder**: *+ Add filter* adds a condition row (Color, Paper tags, Annotation tags, Author, Citekey, Year, Type, Annotation text, Comment, Title), and all rows are combined with **And** or **Or**. Each picker shows how many annotations match. Add a field by adding an entry to `FIELDS` in `annotable.js`.
+- **Filter builder**: *+ Add filter* adds a condition row (Color, Paper tags, Annotation tags, Author, Citekey, Year, Type, Annotation text, Comment, Title), and all rows are combined with **And** or **Or**. Each picker shows how many annotations match. Add a field by adding an entry to `FIELDS` in `litmatrix.js`.
 - **Color meanings**: *Color meanings…* lets you name what each highlight color means, and separately what an underline in that color means (e.g. blue = experiment, blue underline = specific methods). These names are used everywhere instead of hex codes.
 - **Edit in place** (saved straight back to Zotero):
   - Click a **Comment** cell to edit it. Enter saves, Shift+Enter adds a new line, Esc cancels.
@@ -26,7 +28,7 @@ A Zotero 7–9 plugin that shows every annotation in your library in one place, 
   - Annotations imported from inside a PDF file (🔒) are read-only in Zotero and are skipped.
 - **Quick search** box, and a **library/collection** picker to limit what's shown.
 - Optional **grouping** of rows by color, tag, paper or type. Groups can be collapsed.
-- **Per-paper view**: right-click items in the library → *Show Annotations*. This adds a Citekey filter.
+- **Per-paper view**: right-click items in the library → *Show in LitMatrix*. This adds a Citekey filter.
 - **Click a row** to open the PDF at that annotation. Click the citekey to show the paper in the library.
 - **Copy Markdown** (all rows shown, one group, or one row) in an Obsidian-friendly format:
   `- ==highlight== — comment ([@citekey, p. 4](zotero://open-pdf/library/items/…?annotation=…)) #tag`
@@ -36,7 +38,7 @@ Citation keys come from Zotero's native *Citation Key* field (which Better BibTe
 
 ## Install
 
-1. Build: `pwsh ./build.ps1` → `dist/zotero-annotable-<version>.xpi`
+1. Build: `pwsh ./build.ps1` → `dist/litmatrix-<version>.xpi`
 2. Zotero → Tools → Plugins → gear icon → *Install Plugin From File…* → select the `.xpi`.
 
 ## Development
@@ -44,9 +46,9 @@ Citation keys come from Zotero's native *Citation Key* field (which Better BibTe
 The plugin is plain JavaScript, so there's no build step beyond zipping:
 
 - `plugin/bootstrap.js`: registers the menus and opens the tab or window.
-- `plugin/content/annotable.{html,js,css}`: the browser UI. It reads annotations directly from the Zotero database.
+- `plugin/content/litmatrix.{html,js,css}`: the browser UI. It reads annotations directly from the Zotero database.
 
-For live development, skip the XPI. Close Zotero and create a text file named `zotero-annotable@bapungiri` (no extension) in `<Zotero profile>/extensions/`, containing the absolute path to `plugin/`. Restart Zotero; after editing the UI files, close and reopen the Annotations tab.
+For live development, skip the XPI. Close Zotero and create a text file named `litmatrix@bapungiri` (no extension) in `<Zotero profile>/extensions/`, containing the absolute path to `plugin/`. Restart Zotero; after editing the UI files, close and reopen the LitMatrix tab.
 
 `legacy/` holds the earlier TypeScript attempt, kept for reference.
 

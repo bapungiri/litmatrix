@@ -1,18 +1,18 @@
 {
   "manifest_version": 2,
-  "name": "Zotero Annotable",
-  "version": "0.8.0",
-  "description": "Browse all your annotations grouped by color meaning, tag or paper.",
+  "name": "LitMatrix",
+  "version": "1.0.0",
+  "description": "A literature-review matrix for Zotero: papers as rows, your highlight-color meanings as columns.",
   "author": "bapungiri",
-  "homepage_url": "https://github.com/bapungiri/zotero-annotable",
+  "homepage_url": "https://github.com/bapungiri/litmatrix",
   "icons": {
     "48": "content/icon.svg",
     "96": "content/icon.svg"
   },
   "applications": {
     "zotero": {
-      "id": "zotero-annotable@bapungiri",
-      "update_url": "https://raw.githubusercontent.com/bapungiri/zotero-annotable/main/update.json",
+      "id": "litmatrix@bapungiri",
+      "update_url": "https://raw.githubusercontent.com/bapungiri/litmatrix/main/update.json",
       "strict_min_version": "7.0",
       "strict_max_version": "9.*"
     }

@@ -9,8 +9,8 @@ const Zotero = (() => {
   }
 })();
 
-const PREF_COLORS = "extensions.zotero-annotable.colorLabels";
-const PREF_UI = "extensions.zotero-annotable.ui";
+const PREF_COLORS = "extensions.litmatrix.colorLabels";
+const PREF_UI = "extensions.litmatrix.ui";
 
 // Zotero's built-in highlight palette, in the order the reader shows it.
 const ZOTERO_COLORS = {
@@ -1481,11 +1481,11 @@ function makeDraggable(th, k, listKey) {
   th.draggable = true;
   th.addEventListener("dragstart", (e) => {
     if (e.target.closest?.(".resizer")) return e.preventDefault();
-    e.dataTransfer.setData("text/x-annotable-col", k);
+    e.dataTransfer.setData("text/x-litmatrix-col", k);
     e.dataTransfer.effectAllowed = "move";
   });
   th.addEventListener("dragover", (e) => {
-    if (![...e.dataTransfer.types].includes("text/x-annotable-col")) return;
+    if (![...e.dataTransfer.types].includes("text/x-litmatrix-col")) return;
     e.preventDefault();
     th.classList.add("drop");
   });
@@ -1493,7 +1493,7 @@ function makeDraggable(th, k, listKey) {
   th.addEventListener("drop", (e) => {
     e.preventDefault();
     th.classList.remove("drop");
-    const from = e.dataTransfer.getData("text/x-annotable-col");
+    const from = e.dataTransfer.getData("text/x-litmatrix-col");
     if (!from || from === k) return;
     const list = S.ui[listKey].filter((x) => x !== from);
     list.splice(list.indexOf(k) + (S.ui[listKey].indexOf(from) < S.ui[listKey].indexOf(k) ? 1 : 0), 0, from);
@@ -2169,7 +2169,7 @@ async function init() {
   const observerID = Zotero.Notifier.registerObserver(
     { notify: () => scheduleReload() },
     ["item", "item-tag", "collection", "collection-item"],
-    "zotero-annotable",
+    "litmatrix",
   );
   window.addEventListener("unload", () => Zotero.Notifier.unregisterObserver(observerID));
 
@@ -2178,5 +2178,5 @@ async function init() {
   if (ids) setItemFilter(ids.split(",").map(Number));
 }
 
-window.Annotable = { setItemFilter, reload };
+window.LitMatrix = { setItemFilter, reload };
 init();

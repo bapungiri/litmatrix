@@ -1,5 +1,5 @@
 // JSON map of lowercase hex color -> what that highlight color means to you.
-// Edited from the "Colors" button in the Annotations tab.
-pref("extensions.zotero-annotable.colorLabels", "{}");
+// Edited from the "Color meanings…" button.
+pref("extensions.litmatrix.colorLabels", "{}");
 // JSON blob of UI state (group-by, sort, density, ...), remembered between sessions.
-pref("extensions.zotero-annotable.ui", "{}");
+pref("extensions.litmatrix.ui", "{}");

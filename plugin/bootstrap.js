@@ -1,11 +1,11 @@
 /* global Zotero, Services, Components, APP_SHUTDOWN */
 "use strict";
 
-const ADDON_REF = "zotero-annotable";
-const TAB_TYPE = "annotable"; // must not contain "-" (Zotero_Tabs.parseTabType splits on it)
-const PAGE_URL = `chrome://${ADDON_REF}/content/annotable.html`;
+const ADDON_REF = "litmatrix";
+const TAB_TYPE = "litmatrix"; // must not contain "-" (Zotero_Tabs.parseTabType splits on it)
+const PAGE_URL = `chrome://${ADDON_REF}/content/litmatrix.html`;
 const HTML_NS = "http://www.w3.org/1999/xhtml";
-const WIN_KEY = "__zoteroAnnotable";
+const WIN_KEY = "__litmatrix";
 
 var chromeHandle = null;
 
@@ -15,6 +15,7 @@ function uninstall() {}
 async function startup({ rootURI }) {
   await Zotero.initializationPromise;
   flushCaches();
+  migratePrefs();
   const aomStartup = Components.classes[
     "@mozilla.org/addons/addon-manager-startup;1"
   ].getService(Components.interfaces.amIAddonManagerStartup);
@@ -22,7 +23,7 @@ async function startup({ rootURI }) {
   chromeHandle = aomStartup.registerChrome(manifestURI, [
     ["content", ADDON_REF, rootURI + "content/"],
   ]);
-  Zotero.ZoteroAnnotable = { openTab, openWindow };
+  Zotero.LitMatrix = { openTab, openWindow };
   for (const win of Zotero.getMainWindows()) {
     if (win.ZoteroPane) addToWindow(win);
   }
@@ -39,11 +40,27 @@ function onMainWindowUnload({ window }) {
 function shutdown(data, reason) {
   if (reason === APP_SHUTDOWN) return;
   for (const win of Zotero.getMainWindows()) removeFromWindow(win);
-  Services.wm.getMostRecentWindow?.("zotero:annotable")?.close();
-  delete Zotero.ZoteroAnnotable;
+  Services.wm.getMostRecentWindow?.("zotero:litmatrix")?.close();
+  delete Zotero.LitMatrix;
   chromeHandle?.destruct();
   chromeHandle = null;
   flushCaches();
+}
+
+// This plugin used to be "Zotero Annotable". Bring its color meanings and layout over
+// the first time LitMatrix starts; the old prefs survive uninstalling that plugin.
+function migratePrefs() {
+  for (const key of ["colorLabels", "ui"]) {
+    const from = `extensions.zotero-annotable.${key}`;
+    const to = `extensions.litmatrix.${key}`;
+    try {
+      if (!Services.prefs.prefHasUserValue(to) && Services.prefs.prefHasUserValue(from)) {
+        Services.prefs.setStringPref(to, Services.prefs.getStringPref(from));
+      }
+    } catch (e) {
+      Zotero.logError(e);
+    }
+  }
 }
 
 // Otherwise an upgraded plugin can keep serving the previous version's CSS/HTML.
@@ -91,7 +108,7 @@ function addToWindow(win) {
         },
       },
       ["tab"],
-      "zotero-annotable-tabs",
+      "litmatrix-tabs",
     );
   }
 
@@ -106,9 +123,9 @@ function addToWindow(win) {
   const toolsPopup = doc.getElementById("menu_ToolsPopup");
   if (toolsPopup) {
     const sep = doc.createXULElement("menuseparator");
-    sep.id = "annotable-tools-sep";
-    const a = makeItem("annotable-tools-open", "Annotation Browser", () => openTab(win));
-    const b = makeItem("annotable-tools-open-window", "Annotation Browser (Window)", () =>
+    sep.id = "litmatrix-tools-sep";
+    const a = makeItem("litmatrix-tools-open", "LitMatrix", () => openTab(win));
+    const b = makeItem("litmatrix-tools-open-window", "LitMatrix (Window)", () =>
       openWindow(win),
     );
     toolsPopup.append(sep, a, b);
@@ -118,8 +135,8 @@ function addToWindow(win) {
   const itemMenu = doc.getElementById("zotero-itemmenu");
   if (itemMenu) {
     const sep = doc.createXULElement("menuseparator");
-    sep.id = "annotable-itemmenu-sep";
-    const mi = makeItem("annotable-itemmenu-open", "Show Annotations", () => {
+    sep.id = "litmatrix-itemmenu-sep";
+    const mi = makeItem("litmatrix-itemmenu-open", "Show in LitMatrix", () => {
       const ids = selectedTopLevelIDs(win);
       openTab(win, ids.length ? ids : null);
     });
@@ -168,14 +185,14 @@ function openTab(win, itemIDs = null) {
     tabs.select(state.tabID);
     if (itemIDs) {
       const frame = win.document.getElementById(state.tabID)?.querySelector("iframe");
-      frame?.contentWindow?.Annotable?.setItemFilter(itemIDs);
+      frame?.contentWindow?.LitMatrix?.setItemFilter(itemIDs);
     }
     return;
   }
 
   const { id, container } = tabs.add({
     type: TAB_TYPE,
-    title: "Annotations",
+    title: "LitMatrix",
     data: {},
     select: true,
     onClose: () => {
@@ -193,15 +210,15 @@ function openTab(win, itemIDs = null) {
 
 function openWindow(win, itemIDs = null) {
   win = win || Zotero.getMainWindow();
-  const existing = Services.wm.getMostRecentWindow("zotero:annotable");
+  const existing = Services.wm.getMostRecentWindow("zotero:litmatrix");
   if (existing) {
     existing.focus();
-    if (itemIDs) existing.Annotable?.setItemFilter(itemIDs);
+    if (itemIDs) existing.LitMatrix?.setItemFilter(itemIDs);
     return;
   }
   win.openDialog(
     PAGE_URL + (itemIDs ? `?items=${itemIDs.join(",")}` : ""),
-    "zotero-annotable-window",
+    "litmatrix-window",
     "chrome,resizable,centerscreen,dialog=no,width=1200,height=850",
   );
 }

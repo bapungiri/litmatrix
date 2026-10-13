@@ -22,10 +22,10 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Build XPI
-        run: cd plugin && zip -r -X "../zotero-annotable-$VERSION.xpi" .
+        run: cd plugin && zip -r -X "../litmatrix-$VERSION.xpi" .
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          files: zotero-annotable-${{ env.VERSION }}.xpi
+          files: litmatrix-${{ env.VERSION }}.xpi
           generate_release_notes: true
