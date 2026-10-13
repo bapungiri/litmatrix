@@ -8,6 +8,13 @@ A Zotero 7–9 plugin that shows every annotation in your library in one place, 
 - **Notion-style table**: Annotation, Paper tags, Annotation tags, Comment and Citekey columns by default. Use *Columns ▾* to add Page, Title, Authors, Year, Type or Added. Drag a header's right edge to resize a column, and click a header to sort (ascending → descending → back to paper/page order). Rows can show 1 line, 3 lines or the full text.
 - **Filter builder**: *+ Add filter* adds a condition row (Color, Paper tags, Annotation tags, Author, Citekey, Year, Type, Annotation text, Comment, Title), and all rows are combined with **And** or **Or**. Each picker shows how many annotations match. Add a field by adding an entry to `FIELDS` in `annotable.js`.
 - **Color meanings**: *Color meanings…* lets you name what each highlight color means (e.g. green = key finding). These names are used everywhere instead of hex codes.
+- **Edit in place** (saved straight back to Zotero):
+  - Click a **Comment** cell to edit it. Enter saves, Shift+Enter adds a new line, Esc cancels.
+  - Click an **Annotation tags** cell to tick tags on or off, or type a new one.
+  - Hover an annotation and use the color button to recolor it.
+  - Tick rows in the first column (Shift-click selects a range, the header box selects all shown). The selection bar can then **set color**, **add tag** or **remove tag** for all of them. This is how to fold stray custom colors into your main ones: filter on those colors, select all, set color.
+  - Bulk changes ask for confirmation, and every change can be undone from the message that appears.
+  - Annotations imported from inside a PDF file (🔒) are read-only in Zotero and are skipped.
 - **Quick search** box, and a **library/collection** picker to limit what's shown.
 - Optional **grouping** of rows by color, tag, paper or type. Groups can be collapsed.
 - **Per-paper view**: right-click items in the library → *Show Annotations*. This adds a Citekey filter.

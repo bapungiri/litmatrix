@@ -201,19 +201,58 @@ body[data-lines="1"] td.c-tags .cell, body[data-lines="1"] td.c-paperTags .cell 
 td.c-citekey .cite { cursor: pointer; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
 td.c-citekey .cite:hover { color: var(--accent); text-decoration-color: currentColor; }
 td .muted { color: var(--faint); }
-td .row-copy {
+td .row-actions {
   position: absolute;
   top: 5px;
   right: 6px;
   display: none;
-  font-size: 11.5px;
-  padding: 1px 7px;
-  color: var(--muted);
+  gap: 1px;
+  align-items: center;
   background: var(--bg);
+  border-radius: 4px;
   box-shadow: var(--shadow);
+  z-index: 1;
 }
-tr.row:hover td .row-copy { display: block; }
-td .row-copy:hover { color: var(--text); background: var(--bg); }
+tr.row:hover td .row-actions { display: inline-flex; }
+td .row-actions button { font-size: 11.5px; padding: 1px 7px; color: var(--muted); display: inline-flex; align-items: center; gap: 3px; }
+td .row-actions button:hover { color: var(--text); }
+td .row-actions .lock { font-size: 11px; padding: 0 6px; cursor: help; }
+
+/* selection column */
+#grid th.c-sel, #grid td.c-sel { text-align: center; padding: 0; }
+#grid td.c-sel { padding-top: 8px; cursor: default; }
+#grid .c-sel input { margin: 0; cursor: pointer; }
+#grid td.c-sel input { opacity: 0.25; }
+#grid tr.row:hover td.c-sel input, #grid tr.selected td.c-sel input { opacity: 1; }
+#grid tr.row.selected td { background: color-mix(in srgb, var(--accent) 9%, var(--bg)); }
+
+/* inline editing */
+#grid td.editable { cursor: text; }
+#grid tr.row td.editable:hover { box-shadow: inset 0 0 0 1px var(--line); }
+#grid td.editing { padding: 3px; }
+#grid td.editing textarea {
+  width: 100%;
+  min-height: 60px;
+  resize: none;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 0;
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px var(--accent);
+  padding: 4px 6px;
+  outline: none;
+}
+#popover .opt.create { color: var(--accent); }
+
+/* status + selection bar */
+#statusRow { display: flex; align-items: center; gap: 12px; min-height: 30px; padding: 0 14px 4px 0; }
+#statusRow #status { padding-top: 4px; padding-bottom: 4px; }
+#selBar { display: flex; align-items: center; gap: 2px; }
+#selBar[hidden] { display: none; }
+#selBar .sel-count { color: var(--accent); font-weight: 600; margin-right: 6px; }
+#selBar button { box-shadow: inset 0 0 0 1px var(--line); margin-right: 4px; }
+#selBar button.clear-sel { box-shadow: none; color: var(--faint); }
 
 #grid tr.group td {
   position: sticky;
@@ -302,3 +341,7 @@ dialog menu button { box-shadow: inset 0 0 0 1px var(--line); }
   font-size: 12.5px;
   z-index: 20;
 }
+#toast { display: flex; align-items: center; gap: 12px; }
+#toast[hidden] { display: none; }
+#toast button { color: var(--bg); font-weight: 600; padding: 0 6px; text-decoration: underline; }
+#toast button:hover { background: transparent; opacity: 0.8; }

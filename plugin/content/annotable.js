@@ -44,6 +44,9 @@ const S = {
   ui: structuredClone(DEFAULT_UI),
   scopeIDs: null, // Set of top-level item IDs in the selected collection, or null
   shown: [],
+  selected: new Set(), // annotation item IDs ticked in the first column
+  lastClicked: null, // for shift-click range selection
+  ignoreNotifyUntil: 0, // skip the reload triggered by our own saves
   groups: [],
 };
 
@@ -110,7 +113,7 @@ async function loadAnnotations() {
     `SELECT a.itemID AS id, i.key AS key, i.libraryID AS libraryID,
             a.parentItemID AS attID, a.type AS type, a.text AS text,
             a.comment AS comment, a.color AS color, a.pageLabel AS pageLabel,
-            a.sortIndex AS sortIndex, i.dateAdded AS dateAdded
+            a.sortIndex AS sortIndex, a.isExternal AS isExternal, i.dateAdded AS dateAdded
      FROM itemAnnotations a JOIN items i ON i.itemID = a.itemID
      WHERE a.itemID NOT IN (SELECT itemID FROM deletedItems)`,
   );
@@ -172,6 +175,8 @@ async function loadAnnotations() {
       sortIndex: r.sortIndex || "",
       dateAdded: r.dateAdded || "",
       tags: tagsByID.get(r.id) || [],
+      // Annotations imported from the PDF file are read-only in Zotero.
+      readOnly: !!r.isExternal || !Zotero.Libraries.get(r.libraryID)?.editable,
       attID: r.attID,
       attKey: info.att.key,
       paper: info.paper,
@@ -442,19 +447,36 @@ function renderAnnotationCell(a) {
   } else {
     body = h("span", { class: "muted" }, `[${TYPE_NAMES[a.type] || "annotation"}]`);
   }
-  const copyBtn = h(
-    "button",
-    {
-      class: "row-copy",
-      title: "Copy as Markdown",
-      onclick: (e) => {
-        e.stopPropagation();
-        copy(annotationMarkdown(a), "Copied");
+  const actions = h(
+    "span",
+    { class: "row-actions" },
+    a.readOnly
+      ? h("span", { class: "lock", title: "Imported from the PDF file, so Zotero won't let it be edited" }, "🔒")
+      : h(
+          "button",
+          {
+            title: "Change color",
+            onclick: (e) => {
+              e.stopPropagation();
+              openColorPicker(e.currentTarget, [a]);
+            },
+          },
+          swatch(a.color),
+          " ▾",
+        ),
+    h(
+      "button",
+      {
+        title: "Copy as Markdown",
+        onclick: (e) => {
+          e.stopPropagation();
+          copy(annotationMarkdown(a), "Copied");
+        },
       },
-    },
-    "Copy",
+      "Copy",
+    ),
   );
-  return [copyBtn, body];
+  return [actions, body];
 }
 
 function visibleColumns() {
@@ -818,6 +840,7 @@ function render() {
 
   const nPapers = new Set(shown.map((a) => a.paper.id)).size;
   $("#status").textContent = `${shown.length} of ${S.all.length} annotations · ${nPapers} paper${nPapers === 1 ? "" : "s"}`;
+  renderSelectionBar();
   document.body.dataset.lines = S.ui.rowLines;
 
   const cols = visibleColumns();
@@ -834,7 +857,7 @@ function render() {
   const frag = document.createDocumentFragment();
   for (const g of S.groups) {
     const isCollapsed = collapsed.has(g.key);
-    if (S.ui.groupBy !== "none") frag.append(renderGroupRow(g, cols.length, isCollapsed));
+    if (S.ui.groupBy !== "none") frag.append(renderGroupRow(g, cols.length + 1, isCollapsed));
     // Rows of collapsed groups are built when the group is first expanded.
     if (!isCollapsed) for (const a of g.items) frag.append(renderRow(a, cols));
   }
@@ -845,7 +868,8 @@ function render() {
 function renderHead(cols) {
   const colgroup = $("#grid colgroup");
   colgroup.textContent = "";
-  let total = 0;
+  colgroup.append(h("col", { style: "width:34px" }));
+  let total = 34;
   for (const k of cols) {
     const w = S.ui.widths[k] || COLUMNS[k].width;
     total += w;
@@ -854,6 +878,18 @@ function renderHead(cols) {
   $("#grid").style.width = `${total}px`;
 
   const tr = h("tr");
+  const nSel = S.shown.filter((a) => S.selected.has(a.id)).length;
+  const allCb = h("input", {
+    type: "checkbox",
+    title: "Select all shown",
+    checked: S.shown.length > 0 && nSel === S.shown.length,
+    onchange: (e) => {
+      for (const a of S.shown) e.target.checked ? S.selected.add(a.id) : S.selected.delete(a.id);
+      render();
+    },
+  });
+  allCb.indeterminate = nSel > 0 && nSel < S.shown.length;
+  tr.append(h("th", { class: "c-sel" }, allCb));
   for (const k of cols) {
     const col = COLUMNS[k];
     const s = S.ui.sort;
@@ -908,16 +944,41 @@ function startResize(e, k) {
 
 function renderRow(a, cols) {
   const tr = h("tr", {
-    class: "row",
+    class: `row${S.selected.has(a.id) ? " selected" : ""}`,
+    "data-id": a.id,
     onclick: () => {
       // Don't jump to the PDF when the user is selecting text to copy.
       if (!window.getSelection().isCollapsed) return;
       openInReader(a);
     },
   });
+  const cb = h("input", { type: "checkbox", checked: S.selected.has(a.id) });
+  tr.append(
+    h(
+      "td",
+      {
+        class: "c-sel",
+        onclick: (e) => {
+          e.stopPropagation();
+          if (e.target !== cb) cb.checked = !cb.checked;
+          toggleSelect(a, cb.checked, e.shiftKey);
+        },
+      },
+      cb,
+    ),
+  );
   for (const k of cols) {
     const td = h("td", { class: `c-${k}` }, h("div", { class: "cell" }, COLUMNS[k].render(a)));
     if (k === "annotation") td.style.setProperty("--c", a.color || "#999");
+    if ((k === "comment" || k === "tags") && !a.readOnly) {
+      td.classList.add("editable");
+      td.title = k === "comment" ? "Click to edit the comment" : "Click to edit the tags";
+      td.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (k === "comment") editComment(td, a);
+        else openTagEditor(td, a);
+      });
+    }
     tr.append(td);
   }
   return tr;
@@ -965,6 +1026,295 @@ function renderGroupRow(g, ncols, isCollapsed) {
 }
 
 // ---------------------------------------------------------------------------
+// editing (writes back to Zotero)
+
+const snapshot = (a) => ({ id: a.id, color: a.color, comment: a.comment, tags: [...a.tags] });
+
+// Applies change(item) to each editable record's Zotero item in one transaction,
+// refreshes the records from the saved items and offers an undo.
+async function saveAnnotations(records, change, describe, { confirmBulk = true, undoable = true } = {}) {
+  const editable = records.filter((a) => !a.readOnly);
+  const skipped = records.length - editable.length;
+  if (!editable.length) {
+    toast(skipped ? "Imported PDF annotations can't be edited in Zotero" : "Nothing to change");
+    return false;
+  }
+  if (confirmBulk && editable.length > 1) {
+    const extra = skipped ? `\n\n${skipped} imported PDF annotation(s) will be skipped.` : "";
+    if (!window.confirm(`${describe} for ${editable.length} annotations?${extra}`)) return false;
+  }
+  const before = editable.map(snapshot);
+  try {
+    const items = (await Zotero.Items.getAsync(editable.map((a) => a.id))).filter(Boolean);
+    await Zotero.Items.loadDataTypes(items, ["annotation", "annotationDeferred", "tags"]);
+    S.ignoreNotifyUntil = Date.now() + 3000;
+    await Zotero.DB.executeTransaction(async () => {
+      for (const item of items) {
+        if (!item.isEditable()) continue;
+        change(item);
+        await item.save();
+      }
+    });
+    const byID = new Map(items.map((it) => [it.id, it]));
+    for (const a of editable) {
+      const it = byID.get(a.id);
+      if (!it) continue;
+      a.color = (it.annotationColor || "").toLowerCase();
+      a.comment = it.annotationComment || "";
+      a.tags = it
+        .getTags()
+        .map((t) => t.tag)
+        .sort((x, y) => x.localeCompare(y));
+      delete a._search;
+    }
+  } catch (e) {
+    Zotero.logError(e);
+    toast(`Saving failed: ${e.message || e}`);
+    reload();
+    return false;
+  }
+  render();
+  const n = editable.length;
+  const msg = `${describe}: ${n} annotation${n === 1 ? "" : "s"}` + (skipped ? ` (${skipped} read-only skipped)` : "");
+  toast(msg, undoable ? { label: "Undo", run: () => restore(before) } : null);
+  return true;
+}
+
+function restore(before) {
+  const byID = new Map(before.map((b) => [b.id, b]));
+  const records = S.all.filter((a) => byID.has(a.id));
+  saveAnnotations(
+    records,
+    (item) => {
+      const b = byID.get(item.id);
+      if (b.color) item.annotationColor = b.color;
+      item.annotationComment = b.comment;
+      item.setTags(b.tags.map((tag) => ({ tag })));
+    },
+    "Undone",
+    { confirmBulk: false, undoable: false },
+  );
+}
+
+function editComment(td, a) {
+  if (td.classList.contains("editing")) return;
+  td.classList.add("editing");
+  const cell = td.querySelector(".cell");
+  const ta = h("textarea", { rows: 3 });
+  ta.value = a.comment;
+  cell.replaceWith(ta);
+  const fit = () => {
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight + 2}px`;
+  };
+  fit();
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+  let done = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    td.classList.remove("editing");
+    const text = ta.value.replace(/\s+$/, "");
+    if (save && text !== a.comment) {
+      await saveAnnotations([a], (item) => (item.annotationComment = text), "Comment saved");
+    } else render();
+  };
+  ta.addEventListener("input", fit);
+  ta.addEventListener("click", (e) => e.stopPropagation());
+  ta.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      finish(false);
+    } else if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      finish(true);
+    }
+  });
+  ta.addEventListener("blur", () => finish(true));
+}
+
+function allAnnotationTags() {
+  const counts = new Map();
+  for (const a of S.all) for (const t of a.tags) counts.set(t, (counts.get(t) || 0) + 1);
+  return counts;
+}
+
+// Tag picker with search-or-create. 'onPick(tag, checked)' is called per toggle.
+function openTagPicker(anchor, { title, tags, isChecked, onPick, allowCreate = true }) {
+  openPopover(anchor, (pop) => {
+    const search = h("input", { type: "search", placeholder: allowCreate ? "Find or create a tag…" : "Find a tag…" });
+    const list = h("div", { class: "opts" });
+    const draw = () => {
+      const q = search.value.trim();
+      const ql = q.toLowerCase();
+      list.textContent = "";
+      if (title) list.append(h("div", { class: "more" }, title));
+      const names = [...tags.keys()]
+        .filter((t) => !ql || t.toLowerCase().includes(ql))
+        .sort((x, y) => isChecked(y) - isChecked(x) || tags.get(y) - tags.get(x) || x.localeCompare(y));
+      if (allowCreate && q && !tags.has(q)) {
+        list.append(
+          h(
+            "div",
+            {
+              class: "opt create",
+              onclick: async () => {
+                tags.set(q, 0);
+                search.value = "";
+                await onPick(q, true);
+                draw();
+              },
+            },
+            h("span", { class: "lbl" }, `+ Create “${q}”`),
+          ),
+        );
+      }
+      for (const t of names.slice(0, 300)) {
+        const cb = h("input", { type: "checkbox", checked: isChecked(t) });
+        const row = h("label", { class: "opt" }, cb, h("span", { class: `pill ${tagClass(t)}` }, t), h("span", { class: "n" }, tags.get(t) || ""));
+        cb.addEventListener("change", async () => {
+          await onPick(t, cb.checked);
+          draw();
+        });
+        list.append(row);
+      }
+      if (!names.length && !(allowCreate && q)) list.append(h("div", { class: "more" }, "No tags"));
+    };
+    search.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") list.querySelector(".opt.create, .opt input")?.click();
+    });
+    search.addEventListener("input", draw);
+    draw();
+    pop.append(search, list);
+  });
+}
+
+function openTagEditor(td, a) {
+  openTagPicker(td, {
+    tags: allAnnotationTags(),
+    isChecked: (t) => a.tags.includes(t),
+    onPick: (t, checked) =>
+      saveAnnotations([a], (item) => (checked ? item.addTag(t) : item.removeTag(t)), checked ? `Tagged “${t}”` : `Removed “${t}”`),
+  });
+}
+
+function colorChoices() {
+  const counts = new Map();
+  for (const a of S.all) counts.set(a.color, (counts.get(a.color) || 0) + 1);
+  for (const c of PALETTE_ORDER) if (!counts.has(c)) counts.set(c, 0);
+  return [...counts.keys()].filter(Boolean).sort((x, y) => colorRank(x, counts) - colorRank(y, counts));
+}
+
+function openColorPicker(anchor, records) {
+  const current = records.length === 1 ? records[0].color : null;
+  openPopover(anchor, (pop) => {
+    const list = h("div", { class: "opts" });
+    for (const c of colorChoices()) {
+      list.append(
+        h(
+          "div",
+          {
+            class: `opt${c === current ? " sel" : ""}`,
+            title: c,
+            onclick: () => {
+              closePopover();
+              if (c === current) return;
+              saveAnnotations(records, (item) => (item.annotationColor = c), `Color set to ${colorLabel(c)}`);
+            },
+          },
+          swatch(c),
+          h("span", { class: "lbl" }, colorLabel(c)),
+          ZOTERO_COLORS[c] ? null : h("span", { class: "n" }, c),
+        ),
+      );
+    }
+    pop.append(list);
+  });
+}
+
+function toggleSelect(a, on, range) {
+  if (range && S.lastClicked != null) {
+    const ids = S.shown.map((x) => x.id);
+    const i = ids.indexOf(S.lastClicked);
+    const j = ids.indexOf(a.id);
+    if (i >= 0 && j >= 0) {
+      for (const id of ids.slice(Math.min(i, j), Math.max(i, j) + 1)) on ? S.selected.add(id) : S.selected.delete(id);
+    }
+  } else {
+    on ? S.selected.add(a.id) : S.selected.delete(a.id);
+  }
+  S.lastClicked = a.id;
+  render();
+}
+
+function renderSelectionBar() {
+  const bar = $("#selBar");
+  const selected = S.all.filter((a) => S.selected.has(a.id));
+  bar.hidden = !selected.length;
+  bar.textContent = "";
+  if (!selected.length) return;
+  const shownIDs = new Set(S.shown.map((a) => a.id));
+  const hiddenN = selected.filter((a) => !shownIDs.has(a.id)).length;
+  bar.append(
+    h("span", { class: "sel-count" }, `${selected.length} selected` + (hiddenN ? ` (${hiddenN} hidden by filters)` : "")),
+    h("button", { onclick: (e) => openColorPicker(e.currentTarget, selected) }, "Set color ▾"),
+    h(
+      "button",
+      {
+        onclick: (e) =>
+          openTagPicker(e.currentTarget, {
+            title: "Add a tag to the selected annotations",
+            tags: allAnnotationTags(),
+            isChecked: () => false,
+            onPick: async (t) => {
+              closePopover();
+              await saveAnnotations(selected, (item) => item.addTag(t), `Tagged “${t}”`);
+            },
+          }),
+      },
+      "Add tag ▾",
+    ),
+    h(
+      "button",
+      {
+        onclick: (e) => {
+          const counts = new Map();
+          for (const a of selected) for (const t of a.tags) counts.set(t, (counts.get(t) || 0) + 1);
+          openTagPicker(e.currentTarget, {
+            title: "Remove a tag from the selected annotations",
+            tags: counts,
+            allowCreate: false,
+            isChecked: () => false,
+            onPick: async (t) => {
+              closePopover();
+              await saveAnnotations(
+                selected.filter((a) => a.tags.includes(t)),
+                (item) => item.removeTag(t),
+                `Removed “${t}”`,
+              );
+            },
+          });
+        },
+      },
+      "Remove tag ▾",
+    ),
+    h(
+      "button",
+      {
+        class: "clear-sel",
+        onclick: () => {
+          S.selected.clear();
+          render();
+        },
+      },
+      "Clear selection",
+    ),
+  );
+}
+
+
+// ---------------------------------------------------------------------------
 // markdown
 
 function zoteroLink(a) {
@@ -1001,12 +1351,26 @@ function exportMarkdown() {
 // actions
 
 let toastTimer;
-function toast(msg) {
+function toast(msg, action) {
   const t = $("#toast");
   t.textContent = msg;
+  if (action) {
+    t.append(
+      h(
+        "button",
+        {
+          onclick: () => {
+            t.hidden = true;
+            action.run();
+          },
+        },
+        action.label,
+      ),
+    );
+  }
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.hidden = true), 1800);
+  toastTimer = setTimeout(() => (t.hidden = true), action ? 8000 : 1800);
 }
 
 function copy(text, msg) {
@@ -1083,14 +1447,21 @@ function setItemFilter(ids) {
 
 let reloadTimer;
 function scheduleReload() {
+  if (Date.now() < S.ignoreNotifyUntil) return;
   clearTimeout(reloadTimer);
-  reloadTimer = setTimeout(reload, 800);
+  reloadTimer = setTimeout(() => {
+    // Don't yank an open editor away; try again once the user is done.
+    if (document.querySelector("td.editing") || !$("#popover").hidden) scheduleReload();
+    else reload();
+  }, 800);
 }
 
 async function reload() {
   $("#refresh").disabled = true;
   try {
     await loadAnnotations();
+    const ids = new Set(S.all.map((a) => a.id));
+    for (const id of S.selected) if (!ids.has(id)) S.selected.delete(id);
     buildScopeSelect();
     render();
   } catch (e) {
@@ -1164,6 +1535,10 @@ function bindControls() {
   $("#export").addEventListener("click", exportMarkdown);
   $("#refresh").addEventListener("click", reload);
   window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && S.selected.size && $("#popover").hidden && !document.querySelector("td.editing")) {
+      S.selected.clear();
+      render();
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === "f") {
       e.preventDefault();
       $("#search").focus();
