@@ -5,9 +5,16 @@ A Zotero 7–9 plugin that shows every annotation in your library in one place, 
 ## Features
 
 - **Annotation Browser** tab (Tools → Annotation Browser), or a separate window (Tools → Annotation Browser (Window)) to keep beside the PDF reader.
+- **Papers view** (default; switch with *Papers | Annotations*): one row per paper, built for literature research.
+  - Columns are Citekey, Year and Title, with optional Authors, Paper tags and annotation count.
+  - Then comes one column per highlight color, titled with its color meaning. Each lists that paper's highlights as bullets, followed by its underlines under the color's *underline meaning*.
+  - Filters work as in the annotation table. A paper shows if any of its annotations match, and cells list only the matching annotations.
+  - Click a bullet to open the PDF there. Click a color header to sort papers by how many notes of that color they have.
+  - Add or remove color columns under *Columns ▾*, and drag headers to reorder. Rows can be grouped by paper tag.
+  - *Copy Markdown* produces one literature note per paper, with a `###` heading per color meaning.
 - **Notion-style table**: Annotation, Paper tags, Annotation tags, Comment and Citekey columns by default. Use *Columns ▾* to add Page, Title, Authors, Year, Type or Added. Drag a header's right edge to resize a column, and click a header to sort (ascending → descending → back to paper/page order). Rows can show 1 line, 3 lines or the full text.
 - **Filter builder**: *+ Add filter* adds a condition row (Color, Paper tags, Annotation tags, Author, Citekey, Year, Type, Annotation text, Comment, Title), and all rows are combined with **And** or **Or**. Each picker shows how many annotations match. Add a field by adding an entry to `FIELDS` in `annotable.js`.
-- **Color meanings**: *Color meanings…* lets you name what each highlight color means (e.g. green = key finding). These names are used everywhere instead of hex codes.
+- **Color meanings**: *Color meanings…* lets you name what each highlight color means, and separately what an underline in that color means (e.g. blue = experiment, blue underline = specific methods). These names are used everywhere instead of hex codes.
 - **Edit in place** (saved straight back to Zotero):
   - Click a **Comment** cell to edit it. Enter saves, Shift+Enter adds a new line, Esc cancels.
   - Click an **Annotation tags** cell to tick tags on or off, or type a new one.

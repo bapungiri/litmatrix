@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Zotero Annotable",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Browse all your annotations grouped by color meaning, tag or paper.",
   "author": "bapungiri",
   "homepage_url": "https://github.com/bapungiri/zotero-annotable",

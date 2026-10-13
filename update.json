@@ -3,8 +3,8 @@
     "zotero-annotable@bapungiri": {
       "updates": [
         {
-          "version": "0.6.0",
-          "update_link": "https://github.com/bapungiri/zotero-annotable/releases/download/v0.6.0/zotero-annotable-0.6.0.xpi",
+          "version": "0.7.0",
+          "update_link": "https://github.com/bapungiri/zotero-annotable/releases/download/v0.7.0/zotero-annotable-0.7.0.xpi",
           "applications": {
             "zotero": {
               "strict_min_version": "7.0"

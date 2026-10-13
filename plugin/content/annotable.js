@@ -35,6 +35,10 @@ const DEFAULT_UI = {
   columns: ["annotation", "paperTags", "tags", "comment", "citekey"],
   widths: {},
   sort: null, // { col, dir: 1 | -1 }; null = paper, then page
+  view: "papers", // "papers" (one row per paper) or "annotations"
+  pcols: ["citekey", "year", "title", "color:#f19837", "color:#ffd400", "color:#2ea8e5", "color:#5fb236", "color:#a28ae5", "color:#ff6666", "color:#e56eee", "color:#aaaaaa"],
+  pGroupBy: "none",
+  psort: null,
   filter: { conj: "and", conds: [] },
 };
 
@@ -759,9 +763,7 @@ function openColumnsPopover(anchor) {
       const cb = h("input", { type: "checkbox", checked: S.ui.columns.includes(k) });
       cb.addEventListener("change", () => {
         if (cb.checked) {
-          // Keep the canonical column order.
-          const order = Object.keys(COLUMNS);
-          S.ui.columns = order.filter((x) => x === k || S.ui.columns.includes(x));
+          if (!S.ui.columns.includes(k)) S.ui.columns.push(k);
         } else S.ui.columns = S.ui.columns.filter((x) => x !== k);
         saveUI();
         render();
@@ -836,19 +838,29 @@ function render() {
   const active = S.ui.filter.conds.filter(condActive);
   const shown = sortRecords(baseRecords().filter((a) => passFilter(a, active)));
   S.shown = shown;
-  S.groups = makeGroups(shown);
+  document.body.dataset.lines = S.ui.rowLines;
+  document.body.dataset.view = S.ui.view;
+  syncViewControls();
 
+  const results = $("#results");
+  const scroll = results.scrollTop;
+  if (S.ui.view === "papers") {
+    $("#selBar").hidden = true;
+    renderPapers(shown);
+  } else renderAnnotations(shown);
+  results.scrollTop = scroll;
+}
+
+function renderAnnotations(shown) {
+  S.groups = makeGroups(shown);
   const nPapers = new Set(shown.map((a) => a.paper.id)).size;
   $("#status").textContent = `${shown.length} of ${S.all.length} annotations · ${nPapers} paper${nPapers === 1 ? "" : "s"}`;
   renderSelectionBar();
-  document.body.dataset.lines = S.ui.rowLines;
 
   const cols = visibleColumns();
   renderHead(cols);
 
   const tbody = $("#grid tbody");
-  const results = $("#results");
-  const scroll = results.scrollTop;
   tbody.textContent = "";
   $("#empty").hidden = shown.length > 0;
   $("#empty").textContent = S.all.length ? "No annotations match the current filters." : "No annotations found.";
@@ -862,7 +874,6 @@ function render() {
     if (!isCollapsed) for (const a of g.items) frag.append(renderRow(a, cols));
   }
   tbody.append(frag);
-  results.scrollTop = scroll;
 }
 
 function renderHead(cols) {
@@ -912,6 +923,7 @@ function renderHead(cols) {
     );
     const inner = h("div", { class: "th-inner" }, label);
     const th = h("th", {}, inner, h("span", { class: "resizer", onmousedown: (e) => startResize(e, k) }));
+    makeDraggable(th, k, "columns");
     tr.append(th);
   }
   const thead = $("#grid thead");
@@ -924,7 +936,7 @@ function startResize(e, k) {
   e.stopPropagation();
   const col = document.querySelector(`#grid col[data-col="${k}"]`);
   const startX = e.clientX;
-  const startW = S.ui.widths[k] || COLUMNS[k].width;
+  const startW = S.ui.widths[k] || (COLUMNS[k] || paperColDef(k)).width;
   const table = $("#grid");
   const startTotal = table.offsetWidth;
   const move = (ev) => {
@@ -1023,6 +1035,351 @@ function renderGroupRow(g, ncols, isCollapsed) {
     },
     td,
   );
+}
+
+// ---------------------------------------------------------------------------
+// papers view: one row per paper, one column per highlight color
+
+// Default color columns, in reading order: questions, results, methods, discussion, ...
+const DEFAULT_COLOR_COLUMNS = ["#f19837", "#ffd400", "#2ea8e5", "#5fb236", "#a28ae5", "#ff6666", "#e56eee", "#aaaaaa"];
+const UNDERLINE = 5;
+
+const underlineLabel = (c) => S.colorLabels[`${c}|underline`] || "Underlined";
+
+const PAPER_COLUMNS = {
+  citekey: {
+    label: "Citekey",
+    width: 150,
+    sortKey: (R) => R.paper.citekey.toLowerCase(),
+    render: (R) =>
+      h(
+        "span",
+        {
+          class: "cite",
+          title: "Show this paper in the library",
+          onclick: (e) => {
+            e.stopPropagation();
+            selectInLibrary(R.paper.id);
+          },
+        },
+        R.paper.citekey,
+      ),
+  },
+  year: { label: "Year", width: 62, sortKey: (R) => R.paper.year || "0", render: (R) => R.paper.year },
+  title: { label: "Title", width: 260, sortKey: (R) => R.paper.title.toLowerCase(), render: (R) => R.paper.title },
+  authors: { label: "Authors", width: 150, sortKey: (R) => R.paper.authors.toLowerCase(), render: (R) => R.paper.authors },
+  paperTags: {
+    label: "Paper tags",
+    width: 170,
+    sortKey: (R) => R.paper.tags.join(", ").toLowerCase() || "￿",
+    render: (R) => R.paper.tags.map((t) => h("span", { class: `pill ${tagClass(t)}` }, t)),
+  },
+  count: { label: "Annotations", width: 90, sortKey: (R) => R.anns.length, render: (R) => R.anns.length },
+};
+
+function colorColumn(c) {
+  return {
+    label: colorLabel(c),
+    color: c,
+    width: 300,
+    sortKey: (R) => (R.byColor.get(c) || []).length,
+    render: (R) => renderColorCell(R, c),
+  };
+}
+
+const paperColDef = (k) => (k.startsWith("color:") ? colorColumn(k.slice(6)) : PAPER_COLUMNS[k]);
+
+function visiblePaperColumns() {
+  const cols = S.ui.pcols.filter((k) => k.startsWith("color:") || PAPER_COLUMNS[k]);
+  return cols.length ? cols : ["citekey"];
+}
+
+function buildPaperRows(annotations) {
+  const rows = new Map();
+  for (const a of annotations) {
+    let R = rows.get(a.paper.id);
+    if (!R) rows.set(a.paper.id, (R = { paper: a.paper, anns: [], byColor: new Map() }));
+    R.anns.push(a);
+    if (!R.byColor.has(a.color)) R.byColor.set(a.color, []);
+    R.byColor.get(a.color).push(a);
+  }
+  const out = [...rows.values()];
+  for (const R of out) for (const list of R.byColor.values()) list.sort((x, y) => x.attID - y.attID || x.sortIndex.localeCompare(y.sortIndex));
+  const s = S.ui.psort;
+  const col = s && paperColDef(s.col);
+  const byKey = (R) => R.paper.citekey.toLowerCase();
+  out.sort((A, B) => {
+    if (col) {
+      const x = col.sortKey(A);
+      const y = col.sortKey(B);
+      const r = typeof x === "number" ? x - y : String(x).localeCompare(String(y));
+      if (r) return r * s.dir;
+    }
+    return byKey(A).localeCompare(byKey(B));
+  });
+  return out;
+}
+
+function bulletText(a) {
+  if (a.text) return a.text;
+  if (a.type === 3) return "[image]";
+  if (a.type === 4) return "[ink drawing]";
+  return a.comment || `[${TYPE_NAMES[a.type] || "annotation"}]`;
+}
+
+function renderBullet(a, underline) {
+  const showComment = a.comment && (a.text || a.type === 3 || a.type === 4);
+  return h(
+    "li",
+    {
+      title: `p. ${a.pageLabel || "?"} — click to open in the PDF`,
+      onclick: (e) => {
+        e.stopPropagation();
+        if (!window.getSelection().isCollapsed) return;
+        openInReader(a);
+      },
+    },
+    h(
+      "span",
+      { class: `t${underline ? " u" : ""}`, style: underline ? `text-decoration-color:${a.color}` : null },
+      bulletText(a),
+      a.pageLabel ? h("span", { class: "pg" }, ` p. ${a.pageLabel}`) : null,
+    ),
+    showComment ? h("div", { class: "cm" }, a.comment) : null,
+  );
+}
+
+function renderColorCell(R, c) {
+  const list = R.byColor.get(c) || [];
+  if (!list.length) return null;
+  const hl = list.filter((a) => a.type !== UNDERLINE);
+  const ul = list.filter((a) => a.type === UNDERLINE);
+  const out = [];
+  if (hl.length) out.push(h("ul", { class: "bullets", style: `--c:${c}` }, hl.map((a) => renderBullet(a, false))));
+  if (ul.length) {
+    out.push(
+      h("div", { class: "ul-label" }, underlineLabel(c)),
+      h("ul", { class: "bullets", style: `--c:${c}` }, ul.map((a) => renderBullet(a, true))),
+    );
+  }
+  return out;
+}
+
+function makePaperGroups(rows) {
+  if (S.ui.pGroupBy !== "paperTag") return [{ key: "all", items: rows }];
+  const groups = new Map();
+  const add = (key, label, R) => {
+    if (!groups.has(key)) groups.set(key, { key, label, items: [] });
+    groups.get(key).items.push(R);
+  };
+  for (const R of rows) {
+    if (!R.paper.tags.length) add(UNTAGGED, "Untagged", R);
+    for (const t of R.paper.tags) add(t, t, R);
+  }
+  return [...groups.values()].sort(
+    (a, b) => (a.key === UNTAGGED) - (b.key === UNTAGGED) || a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
+  );
+}
+
+function renderPapers(shown) {
+  const rows = buildPaperRows(shown);
+  S.paperRows = rows;
+  S.paperGroups = makePaperGroups(rows);
+  $("#status").textContent = `${rows.length} paper${rows.length === 1 ? "" : "s"} · ${shown.length} annotations`;
+
+  const cols = visiblePaperColumns();
+  renderPaperHead(cols);
+
+  const tbody = $("#grid tbody");
+  tbody.textContent = "";
+  $("#empty").hidden = rows.length > 0;
+  $("#empty").textContent = S.all.length ? "No papers match the current filters." : "No annotations found.";
+
+  const grouped = S.ui.pGroupBy !== "none";
+  const collapsed = new Set(S.ui.collapsed[`p:${S.ui.pGroupBy}`] || []);
+  const frag = document.createDocumentFragment();
+  for (const g of S.paperGroups) {
+    const isCollapsed = grouped && collapsed.has(g.key);
+    if (grouped) frag.append(renderPaperGroupRow(g, cols.length, isCollapsed));
+    if (!isCollapsed) for (const R of g.items) frag.append(renderPaperRow(R, cols));
+  }
+  tbody.append(frag);
+}
+
+function renderPaperRow(R, cols) {
+  const tr = h("tr", { class: "prow" });
+  for (const k of cols) {
+    const def = paperColDef(k);
+    const isColor = k.startsWith("color:");
+    tr.append(h("td", { class: isColor ? "c-colorcol" : `c-${k}` }, isColor ? def.render(R) : h("div", { class: "cell" }, def.render(R))));
+  }
+  return tr;
+}
+
+function renderPaperGroupRow(g, ncols, isCollapsed) {
+  const n = g.items.reduce((s, R) => s + R.anns.length, 0);
+  const td = h(
+    "td",
+    { colspan: ncols },
+    h(
+      "div",
+      { class: "g-inner" },
+      h("span", { class: "caret" }, isCollapsed ? "▸" : "▾"),
+      h("span", { class: "g-label" }, g.label),
+      h("span", { class: "n" }, `${g.items.length} paper${g.items.length === 1 ? "" : "s"} · ${n} annotations`),
+      h(
+        "button",
+        {
+          title: "Copy these papers as Markdown notes",
+          onclick: (e) => {
+            e.stopPropagation();
+            copy(g.items.map(paperMarkdown).join("\n"), `Copied ${g.items.length} papers`);
+          },
+        },
+        "Copy",
+      ),
+    ),
+  );
+  const key = `p:${S.ui.pGroupBy}`;
+  return h(
+    "tr",
+    {
+      class: "group",
+      onclick: () => {
+        const set = new Set(S.ui.collapsed[key] || []);
+        set.has(g.key) ? set.delete(g.key) : set.add(g.key);
+        S.ui.collapsed[key] = [...set];
+        saveUI();
+        render();
+      },
+    },
+    td,
+  );
+}
+
+function renderPaperHead(cols) {
+  const colgroup = $("#grid colgroup");
+  colgroup.textContent = "";
+  let total = 0;
+  for (const k of cols) {
+    const w = S.ui.widths[k] || paperColDef(k).width;
+    total += w;
+    colgroup.append(h("col", { "data-col": k, style: `width:${w}px` }));
+  }
+  $("#grid").style.width = `${total}px`;
+
+  const tr = h("tr");
+  for (const k of cols) {
+    const def = paperColDef(k);
+    const s = S.ui.psort;
+    const label = h(
+      "span",
+      {
+        class: "th-label",
+        title: def.color
+          ? `${def.label}${S.colorLabels[`${def.color}|underline`] ? ` / underline: ${underlineLabel(def.color)}` : ""} — click to sort by count, drag to move`
+          : `Sort by ${def.label.toLowerCase()}, drag to move`,
+        onclick: () => {
+          // A color column sorts papers with the most notes of that color first.
+          const first = def.color || k === "count" ? -1 : 1;
+          if (!s || s.col !== k) S.ui.psort = { col: k, dir: first };
+          else if (s.dir === first) S.ui.psort = { col: k, dir: -first };
+          else S.ui.psort = null;
+          saveUI();
+          render();
+        },
+      },
+      def.color ? swatch(def.color) : null,
+      def.label,
+      s && s.col === k ? h("span", { class: "sort" }, s.dir === 1 ? " ▲" : " ▼") : null,
+    );
+    const th = h("th", {}, h("div", { class: "th-inner" }, label), h("span", { class: "resizer", onmousedown: (e) => startResize(e, k) }));
+    makeDraggable(th, k, "pcols");
+    tr.append(th);
+  }
+  const thead = $("#grid thead");
+  thead.textContent = "";
+  thead.append(tr);
+}
+
+// Drag a header onto another to move the column there.
+function makeDraggable(th, k, listKey) {
+  th.draggable = true;
+  th.addEventListener("dragstart", (e) => {
+    if (e.target.closest?.(".resizer")) return e.preventDefault();
+    e.dataTransfer.setData("text/x-annotable-col", k);
+    e.dataTransfer.effectAllowed = "move";
+  });
+  th.addEventListener("dragover", (e) => {
+    if (![...e.dataTransfer.types].includes("text/x-annotable-col")) return;
+    e.preventDefault();
+    th.classList.add("drop");
+  });
+  th.addEventListener("dragleave", () => th.classList.remove("drop"));
+  th.addEventListener("drop", (e) => {
+    e.preventDefault();
+    th.classList.remove("drop");
+    const from = e.dataTransfer.getData("text/x-annotable-col");
+    if (!from || from === k) return;
+    const list = S.ui[listKey].filter((x) => x !== from);
+    list.splice(list.indexOf(k) + (S.ui[listKey].indexOf(from) < S.ui[listKey].indexOf(k) ? 1 : 0), 0, from);
+    S.ui[listKey] = list;
+    saveUI();
+    render();
+  });
+}
+
+function openPaperColumnsPopover(anchor) {
+  openPopover(anchor, (pop) => {
+    const list = h("div", { class: "opts" });
+    const toggle = (k, on) => {
+      if (on) {
+        if (!S.ui.pcols.includes(k)) S.ui.pcols.push(k);
+      } else S.ui.pcols = S.ui.pcols.filter((x) => x !== k);
+      saveUI();
+      render();
+    };
+    const row = (k, label, sw) => {
+      const cb = h("input", { type: "checkbox", checked: S.ui.pcols.includes(k) });
+      cb.addEventListener("change", () => toggle(k, cb.checked));
+      return h("label", { class: "opt" }, cb, sw ? swatch(sw) : null, h("span", { class: "lbl" }, label));
+    };
+    list.append(h("div", { class: "more" }, "Paper"));
+    for (const [k, col] of Object.entries(PAPER_COLUMNS)) list.append(row(k, col.label));
+    list.append(h("div", { class: "more" }, "Colors (drag headers to reorder)"));
+    for (const c of colorChoices()) list.append(row(`color:${c}`, colorLabel(c), c));
+    pop.append(list);
+  });
+}
+
+function paperMarkdown(R) {
+  const p = R.paper;
+  const lines = [`## ${p.citekey} — ${p.title}${p.year ? ` (${p.year})` : ""}`];
+  const meta = [p.authors, p.tags.length ? p.tags.map((t) => `#${t.replace(/\s+/g, "-")}`).join(" ") : ""].filter(Boolean);
+  if (meta.length) lines.push(meta.join(" · "));
+  const bullet = (a) => {
+    const body = a.text ? oneLine(a.text) : a.type === 3 ? "*(image)*" : a.type === 4 ? "*(ink)*" : "";
+    const comment = a.comment ? oneLine(a.comment) : "";
+    const link = `([p. ${a.pageLabel || "?"}](${zoteroLink(a)}))`;
+    const first = `- ${body || comment} ${link}`;
+    return body && comment ? `${first}\n  - ${comment}` : first;
+  };
+  for (const k of visiblePaperColumns()) {
+    if (!k.startsWith("color:")) continue;
+    const c = k.slice(6);
+    const list = R.byColor.get(c) || [];
+    const hl = list.filter((a) => a.type !== UNDERLINE);
+    const ul = list.filter((a) => a.type === UNDERLINE);
+    if (hl.length) lines.push("", `### ${colorLabel(c)}`, ...hl.map(bullet));
+    if (ul.length) lines.push("", `### ${underlineLabel(c)}`, ...ul.map(bullet));
+  }
+  return lines.join("\n") + "\n";
+}
+
+function exportPapersMarkdown() {
+  const rows = S.paperRows || [];
+  const header = `# Literature notes\n_${new Date().toISOString().slice(0, 10)} · ${rows.length} papers_\n`;
+  copy(`${header}\n${rows.map(paperMarkdown).join("\n")}`, `Copied ${rows.length} papers as Markdown`);
 }
 
 // ---------------------------------------------------------------------------
@@ -1403,6 +1760,9 @@ function openColorDialog() {
   const colors = [...counts.keys()].filter(Boolean).sort((a, b) => colorRank(a, counts) - colorRank(b, counts));
   const rows = $("#colorRows");
   rows.textContent = "";
+  rows.append(
+    h("div", { class: "color-row head" }, h("span"), h("span"), h("span", {}, "Highlight means…"), h("span", {}, "Underline means…"), h("span")),
+  );
   for (const c of colors) {
     rows.append(
       h(
@@ -1410,7 +1770,8 @@ function openColorDialog() {
         { class: "color-row" },
         swatch(c),
         h("code", {}, c),
-        h("input", { type: "text", "data-color": c, value: S.colorLabels[c] || "", placeholder: ZOTERO_COLORS[c] || "(unnamed)" }),
+        h("input", { type: "text", "data-key": c, value: S.colorLabels[c] || "", placeholder: ZOTERO_COLORS[c] || "(unnamed)" }),
+        h("input", { type: "text", "data-key": `${c}|underline`, value: S.colorLabels[`${c}|underline`] || "", placeholder: "Underlined" }),
         h("span", { class: "n" }, counts.get(c)),
       ),
     );
@@ -1422,7 +1783,7 @@ function saveColorDialog() {
   const labels = {};
   for (const input of document.querySelectorAll("#colorRows input")) {
     const v = input.value.trim();
-    if (v) labels[input.dataset.color] = v;
+    if (v) labels[input.dataset.key] = v;
   }
   S.colorLabels = labels;
   Zotero.Prefs.set(PREF_COLORS, JSON.stringify(labels), true);
@@ -1484,6 +1845,9 @@ function loadUI() {
   ui.filter.conds = ui.filter.conds.filter((c) => FIELDS[c.field]);
   ui.collapsed ||= {};
   ui.widths ||= {};
+  if (!["papers", "annotations"].includes(ui.view)) ui.view = "papers";
+  if (!Array.isArray(ui.pcols)) ui.pcols = structuredClone(DEFAULT_UI.pcols);
+  if (!["none", "paperTag"].includes(ui.pGroupBy)) ui.pGroupBy = "none";
   if (!ui.paperTagsColumnAdded) {
     if (!ui.columns.includes("paperTags")) ui.columns = Object.keys(COLUMNS).filter((k) => k === "paperTags" || ui.columns.includes(k));
     ui.paperTagsColumnAdded = true;
@@ -1494,6 +1858,14 @@ function loadUI() {
 }
 
 let scopeDropdown;
+
+function syncViewControls() {
+  for (const b of document.querySelectorAll("#viewSwitch button")) b.classList.toggle("on", b.dataset.view === S.ui.view);
+  const papers = S.ui.view === "papers";
+  $("#groupBy").hidden = papers;
+  $("#pGroupBy").hidden = !papers;
+  $("#export").title = papers ? "Copy the papers shown as Markdown literature notes" : "Copy the rows shown as Markdown (Obsidian-friendly)";
+}
 
 function bindControls() {
   let searchTimer;
@@ -1512,10 +1884,41 @@ function bindControls() {
         render();
       },
     });
+    dd.id = slot.slice(1);
     $(slot).replaceWith(dd);
     return dd;
   };
   scopeDropdown = toolbarDropdown("#scope", "scope", [{ value: "all", label: "All libraries" }], computeScopeIDs);
+  const viewBtn = (v, label) =>
+    h(
+      "button",
+      {
+        "data-view": v,
+        onclick: () => {
+          if (S.ui.view === v) return;
+          S.ui.view = v;
+          saveUI();
+          $("#results").scrollTop = 0;
+          render();
+        },
+      },
+      label,
+    );
+  $("#viewSwitch").append(viewBtn("papers", "Papers"), viewBtn("annotations", "Annotations"));
+  const pGroup = dropdown({
+    options: [
+      { value: "none", label: "None" },
+      { value: "paperTag", label: "Paper tag" },
+    ],
+    value: S.ui.pGroupBy,
+    onChange: (v) => {
+      S.ui.pGroupBy = v;
+      saveUI();
+      render();
+    },
+  });
+  pGroup.id = "pGroupBy";
+  $("#groupBy").after(pGroup);
   toolbarDropdown("#groupBy", "groupBy", [
     { value: "none", label: "None" },
     { value: "color", label: "Color" },
@@ -1529,10 +1932,12 @@ function bindControls() {
     { value: "3", label: "3 lines" },
     { value: "0", label: "Full" },
   ]);
-  $("#columnsBtn").addEventListener("click", (e) => openColumnsPopover(e.currentTarget));
+  $("#columnsBtn").addEventListener("click", (e) =>
+    S.ui.view === "papers" ? openPaperColumnsPopover(e.currentTarget) : openColumnsPopover(e.currentTarget),
+  );
   $("#colors").addEventListener("click", openColorDialog);
   $("#saveColors").addEventListener("click", saveColorDialog);
-  $("#export").addEventListener("click", exportMarkdown);
+  $("#export").addEventListener("click", () => (S.ui.view === "papers" ? exportPapersMarkdown() : exportMarkdown()));
   $("#refresh").addEventListener("click", reload);
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && S.selected.size && $("#popover").hidden && !document.querySelector("td.editing")) {
