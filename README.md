@@ -1,6 +1,6 @@
 # LitMatrix
 
-A literature-review matrix for Zotero 7–9. Papers are rows and your highlight-color meanings are columns, so you can see at a glance the questions, results, methods and critiques across everything you've read on a topic. A second view lists every annotation in a Notion-style table, where you can edit, recolor and tag them.
+A literature-review matrix for Zotero 7–10. Papers are rows and your highlight-color meanings are columns, so you can see at a glance the questions, results, methods and critiques across everything you've read on a topic. A second view lists every annotation in a Notion-style table, where you can edit, recolor and tag them.
 
 > LitMatrix was previously called **Zotero Annotable**. Installing LitMatrix copies over your color meanings and layout the first time it starts; uninstall Zotero Annotable afterwards.
 
@@ -16,6 +16,12 @@ A literature-review matrix for Zotero 7–9. Papers are rows and your highlight-
   - Click a bullet to open the PDF there. Click a column header to sort papers by how many notes of that kind they have.
   - Add, remove or drag-reorder columns. Rows can be grouped by paper tag.
   - *Copy Markdown* produces one literature note per paper, with a `###` heading per column.
+- **Your own notes per paper** (Thoughts, Critique, …):
+  - These live in an ordinary Zotero child note titled *Thoughts & Critique*. Each `## Section` heading in it becomes a column in the Papers view.
+  - Click a cell to write; Ctrl+Enter saves. A blank line starts a new paragraph, `- ` makes a bullet, and `**bold**` and `*italic*` work. The note is created the first time you write.
+  - You can also edit the same note in Zotero's note editor, including from the PDF reader's side pane while reading.
+  - The note title and section names are set under *Columns ▾ → Edit note sections…*.
+  - The *My notes* filter searches these notes, *is not empty* finds papers you've written about, and *Copy Markdown* includes them.
 - **Notion-style table**: Annotation, Paper tags, Annotation tags, Comment and Citekey columns by default. Use *Columns ▾* to add Page, Title, Authors, Year, Type or Added. Drag a header's right edge to resize a column, and click a header to sort (ascending → descending → back to paper/page order). Rows can show 1 line, 3 lines or the full text.
 - **Filter builder**: *+ Add filter* adds a condition row (Color, Paper tags, Annotation tags, Author, Citekey, Year, Type, Annotation text, Comment, Title), and all rows are combined with **And** or **Or**. Each picker shows how many annotations match. Add a field by adding an entry to `FIELDS` in `litmatrix.js`.
 - **Color meanings**: *Color meanings…* lets you name what each highlight color means, and separately what an underline in that color means (e.g. blue = experiment, blue underline = specific methods). These names are used everywhere instead of hex codes.

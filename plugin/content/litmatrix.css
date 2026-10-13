@@ -418,3 +418,29 @@ tr.prow.collapsed td { padding-top: 5px; padding-bottom: 5px; }
 tr.prow.empty-paper td { color: var(--faint); }
 tr.prow.empty-paper .cite { color: var(--muted); }
 #toolbar > button.toggle.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg)); }
+
+/* paper note sections */
+#grid td.c-section { padding: 6px 9px; }
+#grid td.c-section.editable { cursor: text; }
+#grid tr.prow td.c-section.editable:hover { box-shadow: inset 0 0 0 1px var(--line); }
+.note-body > :first-child { margin-top: 0; }
+.note-body > :last-child { margin-bottom: 0; }
+.note-body p { margin: 0 0 6px; }
+.note-body ul, .note-body ol { margin: 0 0 6px; padding-left: 18px; }
+.note-body h3 { font-size: 13px; margin: 6px 0 2px; }
+.add-note { color: var(--faint); visibility: hidden; font-size: 12px; }
+tr.prow:hover .add-note { visibility: visible; }
+body[data-lines="3"] .note-body { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+body[data-lines="1"] .note-body, tr.prow.collapsed .note-body { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+#grid td.editing textarea { min-height: 90px; }
+dialog .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; color: var(--muted); }
+dialog .field input, dialog .field textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 0;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  padding: 5px 8px;
+  resize: vertical;
+}

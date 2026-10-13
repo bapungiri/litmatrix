@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <title>LitMatrix</title>
-  <link rel="stylesheet" href="litmatrix.css?v=1.0.0" />
+  <link rel="stylesheet" href="litmatrix.css?v=1.1.0" />
 </head>
 <body>
   <header id="toolbar">
@@ -47,7 +47,20 @@
     </form>
   </dialog>
 
+  <dialog id="notesDialog">
+    <form method="dialog">
+      <h2>Note sections</h2>
+      <p class="hint">Your thoughts live in a child note of each paper with this title. Each "Section" below is a heading in that note and a column in the Papers view. You can also edit the note in Zotero, e.g. from the PDF reader's side pane.</p>
+      <label class="field">Note title <input id="noteTitleInput" type="text" /></label>
+      <label class="field">Sections, one per line <textarea id="noteSectionsInput" rows="5"></textarea></label>
+      <menu>
+        <button value="cancel">Cancel</button>
+        <button id="saveNotes" value="save" class="primary">Save</button>
+      </menu>
+    </form>
+  </dialog>
+
   <div id="toast" hidden></div>
-  <script src="litmatrix.js?v=1.0.0"></script>
+  <script src="litmatrix.js?v=1.1.0"></script>
 </body>
 </html>

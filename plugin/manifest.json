@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "LitMatrix",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A literature-review matrix for Zotero: papers as rows, your highlight-color meanings as columns.",
   "author": "bapungiri",
   "homepage_url": "https://github.com/bapungiri/litmatrix",
@@ -14,7 +14,7 @@
       "id": "litmatrix@bapungiri",
       "update_url": "https://raw.githubusercontent.com/bapungiri/litmatrix/main/update.json",
       "strict_min_version": "7.0",
-      "strict_max_version": "9.*"
+      "strict_max_version": "10.*"
     }
   }
 }

@@ -42,6 +42,8 @@ const DEFAULT_UI = {
   pCollapsedAll: false,
   pToggled: [], // paper IDs whose collapsed state differs from pCollapsedAll
   includeUnannotated: false,
+  noteTitle: "Thoughts & Critique",
+  noteSections: ["Thoughts", "Critique"],
   filter: { conj: "and", conds: [] },
 };
 
@@ -51,7 +53,8 @@ const S = {
   ui: structuredClone(DEFAULT_UI),
   scopeIDs: null, // Set of top-level item IDs in the selected collection, or null
   shown: [],
-  unannotated: null, // stand-in records for papers without annotations, when shown
+  unannotated: null,
+  paperNotes: new Map(), // see loadPaperNotes() // stand-in records for papers without annotations, when shown
   selected: new Set(), // annotation item IDs ticked in the first column
   lastClicked: null, // for shift-click range selection
   ignoreNotifyUntil: 0, // skip the reload triggered by our own saves
@@ -329,6 +332,12 @@ const FIELDS = {
     ops: { contains: "contains", not: "does not contain", empty: "is empty", notempty: "is not empty" },
     get: (a) => plainText(a.comment),
   },
+  paperNote: {
+    label: "My notes",
+    kind: "text",
+    ops: { contains: "contains", not: "does not contain", empty: "is empty", notempty: "is not empty" },
+    get: (a) => paperNoteText(a.paper.id),
+  },
   title: {
     label: "Title",
     kind: "text",
@@ -397,7 +406,7 @@ function computeScopeIDs() {
 
 function searchText(a) {
   if (!a._search) {
-    a._search = [a.text, plainText(a.comment), a.paper.citekey, a.paper.title, a.paper.authors, a.paper.year, a.tags.join(" "), a.paper.tags.join(" "), colorLabel(a.color)]
+    a._search = [a.text, plainText(a.comment), a.paper.citekey, a.paper.title, a.paper.authors, a.paper.year, a.tags.join(" "), a.paper.tags.join(" "), paperNoteText(a.paper.id), colorLabel(a.color)]
       .join("\n")
       .toLowerCase();
   }
@@ -1133,11 +1142,12 @@ function colorColumn(c, underline) {
 function paperColDef(k) {
   if (k.startsWith("color:")) return colorColumn(k.slice(6), false);
   if (k.startsWith("underline:")) return colorColumn(k.slice(10), true);
+  if (k.startsWith("section:")) return sectionColumn(k.slice(8));
   return PAPER_COLUMNS[k];
 }
 
 function visiblePaperColumns() {
-  const cols = S.ui.pcols.filter((k) => isColorCol(k) || PAPER_COLUMNS[k]);
+  const cols = S.ui.pcols.filter((k) => isColorCol(k) || PAPER_COLUMNS[k] || k.startsWith("section:"));
   return cols.length ? cols : ["citekey"];
 }
 
@@ -1332,8 +1342,18 @@ function renderPaperRow(R, cols) {
   const tr = h("tr", { class: `prow${collapsed ? " collapsed" : ""}${R.anns.length ? "" : " empty-paper"}` });
   cols.forEach((k, i) => {
     const def = paperColDef(k);
-    const content = isColorCol(k) ? def.render(R) : h("div", { class: "cell" }, def.render(R));
-    const td = h("td", { class: isColorCol(k) ? "c-colorcol" : `c-${k}` });
+    const isSection = k.startsWith("section:");
+    const content = isColorCol(k) || isSection ? def.render(R) : h("div", { class: "cell" }, def.render(R));
+    const td = h("td", { class: isColorCol(k) ? "c-colorcol" : isSection ? "c-section" : `c-${k}` });
+    if (isSection && paperEditable(R.paper)) {
+      td.classList.add("editable");
+      td.title = `Click to write ${def.label.toLowerCase()} (saved in the paper's "${noteTitle()}" note)`;
+      td.addEventListener("click", (e) => {
+        if (e.target.closest("a")) return;
+        e.stopPropagation();
+        editSection(td, R, def.section);
+      });
+    }
     if (i === 0) {
       // The collapse triangle lives in whichever column is first.
       const caret = R.anns.length
@@ -1526,6 +1546,21 @@ function openPaperColumnsPopover(anchor) {
     };
     list.append(h("div", { class: "more" }, "Paper"));
     for (const [k, col] of Object.entries(PAPER_COLUMNS)) list.append(row(k, col.label));
+    list.append(h("div", { class: "more" }, `Your notes (in each paper's "${noteTitle()}" note)`));
+    for (const sec of noteSections()) list.append(row(`section:${sec}`, sec));
+    list.append(
+      h(
+        "div",
+        {
+          class: "opt create",
+          onclick: () => {
+            closePopover();
+            openNotesDialog();
+          },
+        },
+        h("span", { class: "lbl" }, "Edit note sections…"),
+      ),
+    );
     list.append(h("div", { class: "more" }, "Highlights / underlines (drag headers to reorder)"));
     for (const c of colorChoices()) {
       list.append(row(`color:${c}`, colorLabel(c), c, false), row(`underline:${c}`, underlineLabel(c), c, true));
@@ -1549,6 +1584,11 @@ function paperMarkdown(R) {
     return body && comment ? `${first}\n  - ${comment}` : first;
   };
   for (const k of visiblePaperColumns()) {
+    if (k.startsWith("section:")) {
+      const text = htmlToText(sectionHTML(R.paper.id, k.slice(8)));
+      if (text) lines.push("", `### ${k.slice(8)}`, text);
+      continue;
+    }
     if (!isColorCol(k)) continue;
     const def = paperColDef(k);
     const list = cellList(R, def.color, def.underline);
@@ -1561,6 +1601,285 @@ function exportPapersMarkdown() {
   const rows = S.paperRows || [];
   const header = `# Literature notes\n_${new Date().toISOString().slice(0, 10)} · ${rows.length} papers_\n`;
   copy(`${header}\n${rows.map(paperMarkdown).join("\n")}`, `Copied ${rows.length} papers as Markdown`);
+}
+
+// ---------------------------------------------------------------------------
+// paper notes: a child note per paper (default title "Thoughts & Critique") whose
+// "## Section" headings become columns in the papers view. Editable here or in
+// Zotero's own note editor (also from the PDF reader's side pane).
+
+const DEFAULT_NOTE_TITLE = "Thoughts & Critique";
+const DEFAULT_NOTE_SECTIONS = ["Thoughts", "Critique"];
+const NOTE_BLOCK_TAGS = new Set(["P", "UL", "OL", "LI", "H3", "H4", "BLOCKQUOTE", "PRE"]);
+const NOTE_INLINE_TAGS = new Set(["B", "STRONG", "I", "EM", "SUB", "SUP", "U", "CODE"]);
+
+const noteTitle = () => (S.ui.noteTitle || DEFAULT_NOTE_TITLE).trim();
+const noteSections = () => (S.ui.noteSections?.length ? S.ui.noteSections : DEFAULT_NOTE_SECTIONS);
+const sameText = (a, b) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+// paper ID -> { itemID, html, sections: Map(lowercased name -> section HTML), text }
+async function loadPaperNotes() {
+  const rows = await Zotero.DB.queryAsync(
+    `SELECT n.itemID AS id, n.parentItemID AS parentID, n.note AS note
+     FROM itemNotes n
+     WHERE n.parentItemID IS NOT NULL AND n.title = ? COLLATE NOCASE
+       AND n.itemID NOT IN (SELECT itemID FROM deletedItems)
+     ORDER BY n.itemID`,
+    [noteTitle()],
+  );
+  S.paperNotes = new Map();
+  for (const r of rows) {
+    // If several notes share the title, the oldest one wins.
+    if (!S.paperNotes.has(r.parentID)) S.paperNotes.set(r.parentID, parseNote(r.id, r.note || ""));
+  }
+}
+
+function parseNote(itemID, html) {
+  const doc = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
+  const sections = new Map();
+  let current = null;
+  const walk = (parent) => {
+    for (const n of [...parent.childNodes]) {
+      if (n.nodeType === 1 && n.tagName === "DIV") walk(n); // Zotero's wrapper div
+      else if (n.nodeType === 1 && (n.tagName === "H1" || n.tagName === "H2")) {
+        current = n.tagName === "H2" ? n.textContent.trim().toLowerCase() : null;
+        if (current && !sections.has(current)) sections.set(current, []);
+      } else if (current) sections.get(current).push(n);
+    }
+  };
+  walk(doc.body);
+  const out = new Map();
+  for (const [k, nodes] of sections) {
+    const box = doc.createElement("div");
+    for (const n of nodes) box.append(n.cloneNode(true));
+    out.set(k, box.innerHTML.trim());
+  }
+  const text = [...out.values()].map((h) => htmlToText(h)).join("\n");
+  return { itemID, html, sections: out, text };
+}
+
+const sectionHTML = (paperID, name) => S.paperNotes?.get(paperID)?.sections.get(name.toLowerCase()) || "";
+const paperNoteText = (paperID) => S.paperNotes?.get(paperID)?.text || "";
+
+// Note HTML -> safe display nodes (paragraphs, lists, emphasis; nothing else).
+function noteDisplay(html) {
+  const doc = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
+  const copyNodes = (from, to) => {
+    for (const n of from.childNodes) {
+      if (n.nodeType === 3) to.append(n.textContent);
+      else if (n.nodeType === 1) {
+        if (n.tagName === "BR") to.append(document.createElement("br"));
+        else if (NOTE_BLOCK_TAGS.has(n.tagName) || NOTE_INLINE_TAGS.has(n.tagName)) {
+          copyNodes(n, to.appendChild(document.createElement(n.tagName.toLowerCase())));
+        } else copyNodes(n, to);
+      }
+    }
+  };
+  const frag = document.createDocumentFragment();
+  copyNodes(doc.body, frag);
+  return frag;
+}
+
+// Note HTML <-> the light Markdown used by the inline editor:
+// blank line = new paragraph, "- " = bullet, **bold**, *italic*.
+function htmlToText(html) {
+  const doc = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
+  const inline = (node) =>
+    [...node.childNodes]
+      .map((n) => {
+        if (n.nodeType === 3) return n.textContent;
+        if (n.nodeType !== 1) return "";
+        if (n.tagName === "BR") return "\n";
+        const inner = inline(n);
+        if (n.tagName === "B" || n.tagName === "STRONG") return inner ? `**${inner}**` : "";
+        if (n.tagName === "I" || n.tagName === "EM") return inner ? `*${inner}*` : "";
+        return inner;
+      })
+      .join("");
+  const blocks = [];
+  for (const n of doc.body.childNodes) {
+    if (n.nodeType === 3) {
+      if (n.textContent.trim()) blocks.push(n.textContent.trim());
+    } else if (n.nodeType === 1 && (n.tagName === "UL" || n.tagName === "OL")) {
+      blocks.push([...n.querySelectorAll(":scope > li")].map((li) => `- ${inline(li).trim()}`).join("\n"));
+    } else if (n.nodeType === 1) {
+      const t = inline(n).trim();
+      if (t) blocks.push(n.tagName === "H3" ? `### ${t}` : t);
+    }
+  }
+  return blocks.join("\n\n");
+}
+
+function textToHtml(text) {
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const inline = (s) =>
+    esc(s)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[^*])\*([^*\s][^*]*?)\*(?!\*)/g, "$1<em>$2</em>");
+  return text
+    .replace(/\r/g, "")
+    .split(/\n\s*\n/)
+    .map((b) => b.trim())
+    .filter(Boolean)
+    .map((b) => {
+      const lines = b.split("\n");
+      if (lines.every((l) => /^\s*[-*]\s+/.test(l))) {
+        return `<ul>${lines.map((l) => `<li>${inline(l.replace(/^\s*[-*]\s+/, ""))}</li>`).join("")}</ul>`;
+      }
+      if (/^###\s+/.test(b)) return `<h3>${inline(b.replace(/^###\s+/, ""))}</h3>`;
+      return `<p>${lines.map(inline).join("<br>")}</p>`;
+    })
+    .join("");
+}
+
+// Replaces (or appends) one "## name" section in a note's HTML.
+function replaceSection(html, name, newHTML) {
+  const doc = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
+  const root = doc.body.querySelector(":scope > div") || doc.body;
+  const heading = [...root.querySelectorAll("h2")].find((h) => sameText(h.textContent, name));
+  const fresh = doc.createElement("div");
+  fresh.innerHTML = newHTML;
+  if (heading) {
+    let n = heading.nextSibling;
+    while (n && !(n.nodeType === 1 && (n.tagName === "H1" || n.tagName === "H2"))) {
+      const next = n.nextSibling;
+      n.remove();
+      n = next;
+    }
+    heading.after(...fresh.childNodes);
+  } else {
+    const h2 = doc.createElement("h2");
+    h2.textContent = name;
+    root.append(h2, ...fresh.childNodes);
+  }
+  return doc.body.innerHTML;
+}
+
+function newNoteHTML(name, sectionHtml) {
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const parts = [`<h1>${esc(noteTitle())}</h1>`];
+  for (const s of noteSections()) parts.push(`<h2>${esc(s)}</h2>`, sameText(s, name) ? sectionHtml : "");
+  return `<div data-schema-version="9">${parts.join("")}</div>`;
+}
+
+async function saveSection(paper, name, text) {
+  const html = textToHtml(text);
+  const existing = S.paperNotes.get(paper.id);
+  let item;
+  let before = null;
+  try {
+    S.ignoreNotifyUntil = Date.now() + 3000;
+    if (existing) {
+      item = await Zotero.Items.getAsync(existing.itemID);
+      await Zotero.Items.loadDataTypes([item], ["note"]);
+      before = item.getNote();
+      item.setNote(replaceSection(before, name, html));
+    } else {
+      item = new Zotero.Item("note");
+      item.libraryID = paper.libraryID;
+      item.parentID = paper.id;
+      item.setNote(newNoteHTML(name, html));
+    }
+    await item.saveTx();
+  } catch (e) {
+    Zotero.logError(e);
+    toast(`Saving the note failed: ${e.message || e}`);
+    return;
+  }
+  S.paperNotes.set(paper.id, parseNote(item.id, item.getNote()));
+  for (const a of S.all) if (a.paper.id === paper.id) delete a._search;
+  render();
+  toast(`${name} saved`, {
+    label: "Undo",
+    run: async () => {
+      S.ignoreNotifyUntil = Date.now() + 3000;
+      if (before === null) await item.eraseTx();
+      else {
+        item.setNote(before);
+        await item.saveTx();
+      }
+      await loadPaperNotes();
+      render();
+    },
+  });
+}
+
+function paperEditable(paper) {
+  return !!Zotero.Libraries.get(paper.libraryID)?.editable;
+}
+
+function renderSectionCell(R, name) {
+  const html = sectionHTML(R.paper.id, name);
+  if (!html) return paperEditable(R.paper) ? h("span", { class: "add-note" }, "+ Add") : null;
+  return h("div", { class: "note-body" }, noteDisplay(html));
+}
+
+function editSection(td, R, name) {
+  if (td.classList.contains("editing") || !paperEditable(R.paper)) return;
+  td.classList.add("editing");
+  const ta = h("textarea", { placeholder: `${name}…  (blank line = new paragraph, "- " = bullet, **bold**, *italic*; Ctrl+Enter saves)` });
+  ta.value = htmlToText(sectionHTML(R.paper.id, name));
+  td.textContent = "";
+  td.append(ta);
+  const fit = () => {
+    ta.style.height = "auto";
+    ta.style.height = `${Math.max(90, ta.scrollHeight + 2)}px`;
+  };
+  fit();
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+  const original = ta.value;
+  let done = false;
+  const finish = async (save) => {
+    if (done) return;
+    done = true;
+    td.classList.remove("editing");
+    if (save && ta.value.trim() !== original.trim()) await saveSection(R.paper, name, ta.value);
+    else render();
+  };
+  ta.addEventListener("input", fit);
+  ta.addEventListener("click", (e) => e.stopPropagation());
+  ta.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      finish(false);
+    } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      finish(true);
+    }
+  });
+  ta.addEventListener("blur", () => finish(true));
+}
+
+function sectionColumn(name) {
+  return {
+    label: name,
+    section: name,
+    width: 280,
+    sortKey: (R) => htmlToText(sectionHTML(R.paper.id, name)).toLowerCase() || "￿",
+    render: (R) => renderSectionCell(R, name),
+  };
+}
+
+function openNotesDialog() {
+  $("#noteTitleInput").value = noteTitle();
+  $("#noteSectionsInput").value = noteSections().join("\n");
+  $("#notesDialog").showModal();
+}
+
+async function saveNotesDialog() {
+  const title = $("#noteTitleInput").value.trim() || DEFAULT_NOTE_TITLE;
+  const sections = [...new Set($("#noteSectionsInput").value.split("\n").map((s) => s.trim()).filter(Boolean))];
+  const old = noteSections();
+  S.ui.noteTitle = title;
+  S.ui.noteSections = sections.length ? sections : DEFAULT_NOTE_SECTIONS;
+  // Show new sections as columns; drop columns of removed ones.
+  const keep = new Set(S.ui.noteSections.map((s) => `section:${s}`));
+  S.ui.pcols = S.ui.pcols.filter((k) => !k.startsWith("section:") || keep.has(k));
+  for (const s of S.ui.noteSections) if (!old.includes(s) && !S.ui.pcols.includes(`section:${s}`)) S.ui.pcols.push(`section:${s}`);
+  saveUI();
+  await loadPaperNotes();
+  render();
 }
 
 // ---------------------------------------------------------------------------
@@ -2004,6 +2323,7 @@ async function reload() {
     await loadAnnotations();
     S.unannotated = null;
     if (S.ui.includeUnannotated) await loadAllPapers();
+    await loadPaperNotes();
     const ids = new Set(S.all.map((a) => a.id));
     for (const id of S.selected) if (!ids.has(id)) S.selected.delete(id);
     buildScopeSelect();
@@ -2032,6 +2352,11 @@ function loadUI() {
   if (!Array.isArray(ui.pcols)) ui.pcols = structuredClone(DEFAULT_UI.pcols);
   if (!["none", "paperTag"].includes(ui.pGroupBy)) ui.pGroupBy = "none";
   if (!Array.isArray(ui.pToggled)) ui.pToggled = [];
+  if (!Array.isArray(ui.noteSections) || !ui.noteSections.length) ui.noteSections = ["Thoughts", "Critique"];
+  if (!ui.noteColsAdded) {
+    for (const sec of ui.noteSections) if (!ui.pcols.includes(`section:${sec}`)) ui.pcols.push(`section:${sec}`);
+    ui.noteColsAdded = true;
+  }
   if (!ui.paperTagsColumnAdded) {
     if (!ui.columns.includes("paperTags")) ui.columns = Object.keys(COLUMNS).filter((k) => k === "paperTags" || ui.columns.includes(k));
     ui.paperTagsColumnAdded = true;
@@ -2141,6 +2466,7 @@ function bindControls() {
   );
   $("#colors").addEventListener("click", openColorDialog);
   $("#saveColors").addEventListener("click", saveColorDialog);
+  $("#saveNotes").addEventListener("click", saveNotesDialog);
   $("#export").addEventListener("click", () => (S.ui.view === "papers" ? exportPapersMarkdown() : exportMarkdown()));
   $("#refresh").addEventListener("click", reload);
   window.addEventListener("keydown", (e) => {
