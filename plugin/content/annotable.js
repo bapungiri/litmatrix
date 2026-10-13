@@ -39,6 +39,9 @@ const DEFAULT_UI = {
   pcols: ["citekey", "year", "title", "color:#f19837", "color:#ffd400", "color:#2ea8e5", "color:#5fb236", "color:#a28ae5", "color:#ff6666", "color:#e56eee", "color:#aaaaaa"],
   pGroupBy: "none",
   psort: null,
+  pCollapsedAll: false,
+  pToggled: [], // paper IDs whose collapsed state differs from pCollapsedAll
+  includeUnannotated: false,
   filter: { conj: "and", conds: [] },
 };
 
@@ -48,6 +51,7 @@ const S = {
   ui: structuredClone(DEFAULT_UI),
   scopeIDs: null, // Set of top-level item IDs in the selected collection, or null
   shown: [],
+  unannotated: null, // stand-in records for papers without annotations, when shown
   selected: new Set(), // annotation item IDs ticked in the first column
   lastClicked: null, // for shift-click range selection
   ignoreNotifyUntil: 0, // skip the reload triggered by our own saves
@@ -86,6 +90,41 @@ function tagClass(tag) {
   for (const ch of tag.replace(/^\*/, "").toLowerCase()) n = (n * 31 + ch.charCodeAt(0)) >>> 0;
   return `t${n % 9}`;
 }
+
+// Zotero stores comments as light HTML (<b>, <i>, <sub>, <sup>). Rebuild only those
+// elements from an inert parse, so markup shows as formatting and nothing else runs.
+const RICH_TAGS = new Set(["B", "STRONG", "I", "EM", "SUB", "SUP", "U"]);
+function richText(html) {
+  if (!/[<&]/.test(html)) return html;
+  const doc = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
+  const copyNodes = (from, to) => {
+    for (const n of from.childNodes) {
+      if (n.nodeType === 3) to.append(n.textContent);
+      else if (n.nodeType === 1) {
+        if (n.tagName === "BR") to.append("\n");
+        else if (RICH_TAGS.has(n.tagName)) copyNodes(n, to.appendChild(document.createElement(n.tagName.toLowerCase())));
+        else copyNodes(n, to);
+      }
+    }
+  };
+  const frag = document.createDocumentFragment();
+  copyNodes(doc.body, frag);
+  return frag;
+}
+
+// Same markup as Markdown, for exports.
+function mdText(html) {
+  return html
+    .replace(/<\/?(b|strong)>/gi, "**")
+    .replace(/<\/?(i|em)>/gi, "*")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+const plainText = (html) => mdText(html).replace(/\*/g, "");
 
 const swatch = (color, title) => h("span", { class: "swatch", style: `background:${color || "#999"}`, title });
 
@@ -288,7 +327,7 @@ const FIELDS = {
     label: "Comment",
     kind: "text",
     ops: { contains: "contains", not: "does not contain", empty: "is empty", notempty: "is not empty" },
-    get: (a) => a.comment,
+    get: (a) => plainText(a.comment),
   },
   title: {
     label: "Title",
@@ -358,7 +397,7 @@ function computeScopeIDs() {
 
 function searchText(a) {
   if (!a._search) {
-    a._search = [a.text, a.comment, a.paper.citekey, a.paper.title, a.paper.authors, a.paper.year, a.tags.join(" "), a.paper.tags.join(" "), colorLabel(a.color)]
+    a._search = [a.text, plainText(a.comment), a.paper.citekey, a.paper.title, a.paper.authors, a.paper.year, a.tags.join(" "), a.paper.tags.join(" "), colorLabel(a.color)]
       .join("\n")
       .toLowerCase();
   }
@@ -366,10 +405,10 @@ function searchText(a) {
 }
 
 // Records in scope and matching the quick search; the filter builder narrows these further.
-function baseRecords() {
+function baseRecords(list = S.all) {
   const terms = $("#search").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const [kind, id] = S.ui.scope.split(":");
-  return S.all.filter((a) => {
+  return list.filter((a) => {
     if (kind === "lib" && a.libraryID !== Number(id)) return false;
     if (S.scopeIDs && !S.scopeIDs.has(a.paper.id)) return false;
     if (terms.length) {
@@ -406,7 +445,7 @@ const COLUMNS = {
     sortKey: (a) => a.tags.join(", ").toLowerCase() || "￿",
     render: (a) => a.tags.map((t) => h("span", { class: `pill ${tagClass(t)}` }, t)),
   },
-  comment: { label: "Comment", width: 300, sortKey: (a) => a.comment.toLowerCase() || "￿", render: (a) => a.comment },
+  comment: { label: "Comment", width: 300, sortKey: (a) => a.comment.toLowerCase() || "￿", render: (a) => richText(a.comment) },
   citekey: {
     label: "Citekey",
     width: 180,
@@ -1038,18 +1077,19 @@ function renderGroupRow(g, ncols, isCollapsed) {
 }
 
 // ---------------------------------------------------------------------------
-// papers view: one row per paper, one column per highlight color
+// papers view: one row per paper, one column per highlight color (and per underline color)
 
 // Default color columns, in reading order: questions, results, methods, discussion, ...
 const DEFAULT_COLOR_COLUMNS = ["#f19837", "#ffd400", "#2ea8e5", "#5fb236", "#a28ae5", "#ff6666", "#e56eee", "#aaaaaa"];
 const UNDERLINE = 5;
 
-const underlineLabel = (c) => S.colorLabels[`${c}|underline`] || "Underlined";
+const underlineLabel = (c) => S.colorLabels[`${c}|underline`] || `${colorLabel(c)} (underline)`;
+const isColorCol = (k) => k.startsWith("color:") || k.startsWith("underline:");
 
 const PAPER_COLUMNS = {
   citekey: {
     label: "Citekey",
-    width: 150,
+    width: 160,
     sortKey: (R) => R.paper.citekey.toLowerCase(),
     render: (R) =>
       h(
@@ -1077,32 +1117,100 @@ const PAPER_COLUMNS = {
   count: { label: "Annotations", width: 90, sortKey: (R) => R.anns.length, render: (R) => R.anns.length },
 };
 
-function colorColumn(c) {
+const cellList = (R, c, underline) => (R.byColor.get(c) || []).filter((a) => (a.type === UNDERLINE) === underline);
+
+function colorColumn(c, underline) {
   return {
-    label: colorLabel(c),
+    label: underline ? underlineLabel(c) : colorLabel(c),
     color: c,
+    underline,
     width: 300,
-    sortKey: (R) => (R.byColor.get(c) || []).length,
-    render: (R) => renderColorCell(R, c),
+    sortKey: (R) => cellList(R, c, underline).length,
+    render: (R) => renderColorCell(R, c, underline),
   };
 }
 
-const paperColDef = (k) => (k.startsWith("color:") ? colorColumn(k.slice(6)) : PAPER_COLUMNS[k]);
+function paperColDef(k) {
+  if (k.startsWith("color:")) return colorColumn(k.slice(6), false);
+  if (k.startsWith("underline:")) return colorColumn(k.slice(10), true);
+  return PAPER_COLUMNS[k];
+}
 
 function visiblePaperColumns() {
-  const cols = S.ui.pcols.filter((k) => k.startsWith("color:") || PAPER_COLUMNS[k]);
+  const cols = S.ui.pcols.filter((k) => isColorCol(k) || PAPER_COLUMNS[k]);
   return cols.length ? cols : ["citekey"];
 }
 
-function buildPaperRows(annotations) {
+// Once, for settings from before underlines had their own columns: put an underline
+// column next to each color column for which there are underline annotations.
+function addUnderlineColumns() {
+  if (S.ui.underlineColsAdded || !S.all.length) return;
+  const underlined = new Set(S.all.filter((a) => a.type === UNDERLINE).map((a) => a.color));
+  const out = [];
+  for (const k of S.ui.pcols) {
+    out.push(k);
+    if (k.startsWith("color:") && underlined.has(k.slice(6)) && !S.ui.pcols.includes(`underline:${k.slice(6)}`)) {
+      out.push(`underline:${k.slice(6)}`);
+    }
+  }
+  S.ui.pcols = out;
+  S.ui.underlineColsAdded = true;
+  saveUI();
+}
+
+// --- papers without annotations (optional)
+
+// All regular top-level items in user/group libraries, as paper info objects.
+// Loaded only when "Show unannotated" is on.
+async function loadAllPapers() {
+  const notChild = `itemID NOT IN (SELECT itemID FROM itemAttachments)
+     AND itemID NOT IN (SELECT itemID FROM itemNotes)
+     AND itemID NOT IN (SELECT itemID FROM itemAnnotations)`;
+  const ids = await Zotero.DB.columnQueryAsync(
+    `SELECT itemID FROM items WHERE itemID NOT IN (SELECT itemID FROM deletedItems) AND ${notChild}`,
+  );
+  const tagRows = await Zotero.DB.queryAsync(
+    `SELECT it.itemID AS id, t.name AS name FROM itemTags it JOIN tags t ON t.tagID = it.tagID
+     WHERE it.itemID IN (SELECT itemID FROM items WHERE ${notChild})`,
+  );
+  const tags = new Map();
+  for (const r of tagRows) {
+    if (!tags.has(r.id)) tags.set(r.id, []);
+    tags.get(r.id).push(r.name);
+  }
+  const libs = new Set(
+    Zotero.Libraries.getAll()
+      .filter((l) => ["user", "group"].includes(l.libraryType))
+      .map((l) => l.libraryID),
+  );
+  const items = (await Zotero.Items.getAsync(ids)).filter((it) => it && libs.has(it.libraryID) && it.isRegularItem());
+  await Zotero.Items.loadDataTypes(items, ["creators", "itemData"]);
+  const annotated = new Set(S.all.map((a) => a.paper.id));
+  S.unannotated = items
+    .filter((it) => !annotated.has(it.id))
+    .map((it) => {
+      const paper = { ...paperInfo(it), tags: (tags.get(it.id) || []).sort((a, b) => a.localeCompare(b)) };
+      // A stand-in record so the same scope/search/filter code applies.
+      return { id: -it.id, paper, libraryID: it.libraryID, type: 0, text: "", comment: "", color: "", tags: [], pageLabel: "", dateAdded: "", placeholder: true };
+    });
+}
+
+// --- rows
+
+function buildPaperRows(annotations, placeholders) {
   const rows = new Map();
+  const rowFor = (paper) => {
+    let R = rows.get(paper.id);
+    if (!R) rows.set(paper.id, (R = { paper, anns: [], byColor: new Map() }));
+    return R;
+  };
   for (const a of annotations) {
-    let R = rows.get(a.paper.id);
-    if (!R) rows.set(a.paper.id, (R = { paper: a.paper, anns: [], byColor: new Map() }));
+    const R = rowFor(a.paper);
     R.anns.push(a);
     if (!R.byColor.has(a.color)) R.byColor.set(a.color, []);
     R.byColor.get(a.color).push(a);
   }
+  for (const a of placeholders) rowFor(a.paper);
   const out = [...rows.values()];
   for (const R of out) for (const list of R.byColor.values()) list.sort((x, y) => x.attID - y.attID || x.sortIndex.localeCompare(y.sortIndex));
   const s = S.ui.psort;
@@ -1124,7 +1232,7 @@ function bulletText(a) {
   if (a.text) return a.text;
   if (a.type === 3) return "[image]";
   if (a.type === 4) return "[ink drawing]";
-  return a.comment || `[${TYPE_NAMES[a.type] || "annotation"}]`;
+  return a.comment ? richText(a.comment) : `[${TYPE_NAMES[a.type] || "annotation"}]`;
 }
 
 function renderBullet(a, underline) {
@@ -1145,47 +1253,60 @@ function renderBullet(a, underline) {
       bulletText(a),
       a.pageLabel ? h("span", { class: "pg" }, ` p. ${a.pageLabel}`) : null,
     ),
-    showComment ? h("div", { class: "cm" }, a.comment) : null,
+    showComment ? h("div", { class: "cm" }, richText(a.comment)) : null,
   );
 }
 
-function renderColorCell(R, c) {
-  const list = R.byColor.get(c) || [];
+function renderColorCell(R, c, underline) {
+  const list = cellList(R, c, underline);
   if (!list.length) return null;
-  const hl = list.filter((a) => a.type !== UNDERLINE);
-  const ul = list.filter((a) => a.type === UNDERLINE);
-  const out = [];
-  if (hl.length) out.push(h("ul", { class: "bullets", style: `--c:${c}` }, hl.map((a) => renderBullet(a, false))));
-  if (ul.length) {
-    out.push(
-      h("div", { class: "ul-label" }, underlineLabel(c)),
-      h("ul", { class: "bullets", style: `--c:${c}` }, ul.map((a) => renderBullet(a, true))),
-    );
-  }
-  return out;
+  if (isPaperCollapsed(R)) return h("span", { class: "cnt", style: `--c:${c}` }, list.length);
+  return h("ul", { class: "bullets", style: `--c:${c}` }, list.map((a) => renderBullet(a, underline)));
 }
 
-function makePaperGroups(rows) {
-  if (S.ui.pGroupBy !== "paperTag") return [{ key: "all", items: rows }];
-  const groups = new Map();
-  const add = (key, label, R) => {
-    if (!groups.has(key)) groups.set(key, { key, label, items: [] });
-    groups.get(key).items.push(R);
-  };
-  for (const R of rows) {
-    if (!R.paper.tags.length) add(UNTAGGED, "Untagged", R);
-    for (const t of R.paper.tags) add(t, t, R);
-  }
-  return [...groups.values()].sort(
-    (a, b) => (a.key === UNTAGGED) - (b.key === UNTAGGED) || a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
-  );
+// --- collapsing
+
+function isPaperCollapsed(R) {
+  if (!R.anns.length) return false;
+  return !!S.ui.pCollapsedAll !== S.ui.pToggled.includes(R.paper.id);
 }
+
+function togglePaper(R) {
+  const id = R.paper.id;
+  S.ui.pToggled = S.ui.pToggled.includes(id) ? S.ui.pToggled.filter((x) => x !== id) : [...S.ui.pToggled, id];
+  saveUI();
+  render();
+}
+
+function anyPaperExpanded() {
+  return (S.paperRows || []).some((R) => R.anns.length && !isPaperCollapsed(R));
+}
+
+function setAllPapersCollapsed(collapsed) {
+  S.ui.pCollapsedAll = collapsed;
+  S.ui.pToggled = [];
+  saveUI();
+  render();
+}
+
+// --- rendering
 
 function renderPapers(shown) {
-  const rows = buildPaperRows(shown);
+  addUnderlineColumns();
+  let placeholders = [];
+  if (S.ui.includeUnannotated && S.unannotated) {
+    const active = S.ui.filter.conds.filter(condActive);
+    placeholders = baseRecords(S.unannotated).filter((a) => passFilter(a, active));
+  }
+  const rows = buildPaperRows(shown, placeholders);
   S.paperRows = rows;
   S.paperGroups = makePaperGroups(rows);
-  $("#status").textContent = `${rows.length} paper${rows.length === 1 ? "" : "s"} · ${shown.length} annotations`;
+  const nEmpty = rows.filter((R) => !R.anns.length).length;
+  $("#status").textContent =
+    `${rows.length} paper${rows.length === 1 ? "" : "s"}` +
+    (S.ui.includeUnannotated ? ` (${nEmpty} without annotations)` : "") +
+    ` · ${shown.length} annotations`;
+  $("#collapseAllBtn").textContent = anyPaperExpanded() ? "Collapse all" : "Expand all";
 
   const cols = visiblePaperColumns();
   renderPaperHead(cols);
@@ -1207,13 +1328,49 @@ function renderPapers(shown) {
 }
 
 function renderPaperRow(R, cols) {
-  const tr = h("tr", { class: "prow" });
-  for (const k of cols) {
+  const collapsed = isPaperCollapsed(R);
+  const tr = h("tr", { class: `prow${collapsed ? " collapsed" : ""}${R.anns.length ? "" : " empty-paper"}` });
+  cols.forEach((k, i) => {
     const def = paperColDef(k);
-    const isColor = k.startsWith("color:");
-    tr.append(h("td", { class: isColor ? "c-colorcol" : `c-${k}` }, isColor ? def.render(R) : h("div", { class: "cell" }, def.render(R))));
-  }
+    const content = isColorCol(k) ? def.render(R) : h("div", { class: "cell" }, def.render(R));
+    const td = h("td", { class: isColorCol(k) ? "c-colorcol" : `c-${k}` });
+    if (i === 0) {
+      // The collapse triangle lives in whichever column is first.
+      const caret = R.anns.length
+        ? h(
+            "button",
+            {
+              class: "pcaret",
+              title: collapsed ? "Expand this paper" : "Collapse this paper",
+              onclick: (e) => {
+                e.stopPropagation();
+                togglePaper(R);
+              },
+            },
+            collapsed ? "▸" : "▾",
+          )
+        : h("span", { class: "pcaret" });
+      td.append(h("div", { class: "first" }, caret, content));
+    } else if (content) td.append(content);
+    tr.append(td);
+  });
   return tr;
+}
+
+function makePaperGroups(rows) {
+  if (S.ui.pGroupBy !== "paperTag") return [{ key: "all", items: rows }];
+  const groups = new Map();
+  const add = (key, label, R) => {
+    if (!groups.has(key)) groups.set(key, { key, label, items: [] });
+    groups.get(key).items.push(R);
+  };
+  for (const R of rows) {
+    if (!R.paper.tags.length) add(UNTAGGED, "Untagged", R);
+    for (const t of R.paper.tags) add(t, t, R);
+  }
+  return [...groups.values()].sort(
+    (a, b) => (a.key === UNTAGGED) - (b.key === UNTAGGED) || a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
+  );
 }
 
 function renderPaperGroupRow(g, ncols, isCollapsed) {
@@ -1269,16 +1426,14 @@ function renderPaperHead(cols) {
   $("#grid").style.width = `${total}px`;
 
   const tr = h("tr");
-  for (const k of cols) {
+  cols.forEach((k, i) => {
     const def = paperColDef(k);
     const s = S.ui.psort;
     const label = h(
       "span",
       {
         class: "th-label",
-        title: def.color
-          ? `${def.label}${S.colorLabels[`${def.color}|underline`] ? ` / underline: ${underlineLabel(def.color)}` : ""} — click to sort by count, drag to move`
-          : `Sort by ${def.label.toLowerCase()}, drag to move`,
+        title: def.color ? `${def.label} — click to sort by count, drag to move` : `Sort by ${def.label.toLowerCase()}, drag to move`,
         onclick: () => {
           // A color column sorts papers with the most notes of that color first.
           const first = def.color || k === "count" ? -1 : 1;
@@ -1289,14 +1444,33 @@ function renderPaperHead(cols) {
           render();
         },
       },
-      def.color ? swatch(def.color) : null,
+      def.color ? h("span", { class: `swatch${def.underline ? " ul" : ""}`, style: `background:${def.color}` }) : null,
       def.label,
       s && s.col === k ? h("span", { class: "sort" }, s.dir === 1 ? " ▲" : " ▼") : null,
     );
-    const th = h("th", {}, h("div", { class: "th-inner" }, label), h("span", { class: "resizer", onmousedown: (e) => startResize(e, k) }));
+    const inner = h("div", { class: "th-inner" });
+    if (i === 0) {
+      const expanded = anyPaperExpanded();
+      inner.append(
+        h(
+          "button",
+          {
+            class: "pcaret",
+            title: expanded ? "Collapse all papers" : "Expand all papers",
+            onclick: (e) => {
+              e.stopPropagation();
+              setAllPapersCollapsed(expanded);
+            },
+          },
+          expanded ? "▾" : "▸",
+        ),
+      );
+    }
+    inner.append(label);
+    const th = h("th", {}, inner, h("span", { class: "resizer", onmousedown: (e) => startResize(e, k) }));
     makeDraggable(th, k, "pcols");
     tr.append(th);
-  }
+  });
   const thead = $("#grid thead");
   thead.textContent = "";
   thead.append(tr);
@@ -1339,18 +1513,28 @@ function openPaperColumnsPopover(anchor) {
       saveUI();
       render();
     };
-    const row = (k, label, sw) => {
+    const row = (k, label, sw, ul) => {
       const cb = h("input", { type: "checkbox", checked: S.ui.pcols.includes(k) });
       cb.addEventListener("change", () => toggle(k, cb.checked));
-      return h("label", { class: "opt" }, cb, sw ? swatch(sw) : null, h("span", { class: "lbl" }, label));
+      return h(
+        "label",
+        { class: `opt${ul ? " sub" : ""}` },
+        cb,
+        sw ? h("span", { class: `swatch${ul ? " ul" : ""}`, style: `background:${sw}` }) : null,
+        h("span", { class: "lbl" }, label),
+      );
     };
     list.append(h("div", { class: "more" }, "Paper"));
     for (const [k, col] of Object.entries(PAPER_COLUMNS)) list.append(row(k, col.label));
-    list.append(h("div", { class: "more" }, "Colors (drag headers to reorder)"));
-    for (const c of colorChoices()) list.append(row(`color:${c}`, colorLabel(c), c));
+    list.append(h("div", { class: "more" }, "Highlights / underlines (drag headers to reorder)"));
+    for (const c of colorChoices()) {
+      list.append(row(`color:${c}`, colorLabel(c), c, false), row(`underline:${c}`, underlineLabel(c), c, true));
+    }
     pop.append(list);
   });
 }
+
+// --- markdown
 
 function paperMarkdown(R) {
   const p = R.paper;
@@ -1359,19 +1543,16 @@ function paperMarkdown(R) {
   if (meta.length) lines.push(meta.join(" · "));
   const bullet = (a) => {
     const body = a.text ? oneLine(a.text) : a.type === 3 ? "*(image)*" : a.type === 4 ? "*(ink)*" : "";
-    const comment = a.comment ? oneLine(a.comment) : "";
+    const comment = a.comment ? oneLine(mdText(a.comment)) : "";
     const link = `([p. ${a.pageLabel || "?"}](${zoteroLink(a)}))`;
     const first = `- ${body || comment} ${link}`;
     return body && comment ? `${first}\n  - ${comment}` : first;
   };
   for (const k of visiblePaperColumns()) {
-    if (!k.startsWith("color:")) continue;
-    const c = k.slice(6);
-    const list = R.byColor.get(c) || [];
-    const hl = list.filter((a) => a.type !== UNDERLINE);
-    const ul = list.filter((a) => a.type === UNDERLINE);
-    if (hl.length) lines.push("", `### ${colorLabel(c)}`, ...hl.map(bullet));
-    if (ul.length) lines.push("", `### ${underlineLabel(c)}`, ...ul.map(bullet));
+    if (!isColorCol(k)) continue;
+    const def = paperColDef(k);
+    const list = cellList(R, def.color, def.underline);
+    if (list.length) lines.push("", `### ${def.label}`, ...list.map(bullet));
   }
   return lines.join("\n") + "\n";
 }
@@ -1685,7 +1866,7 @@ const oneLine = (s) => s.replace(/\s*\n\s*/g, " ").trim();
 function annotationMarkdown(a) {
   const cite = `[@${a.paper.citekey}${a.pageLabel ? `, p. ${a.pageLabel}` : ""}](${zoteroLink(a)})`;
   const body = a.text ? `==${oneLine(a.text)}==` : a.type === 3 ? "*(image)*" : a.type === 4 ? "*(ink)*" : "";
-  const comment = a.comment ? oneLine(a.comment) : "";
+  const comment = a.comment ? oneLine(mdText(a.comment)) : "";
   const parts = [body, body && comment ? `— ${comment}` : comment, `(${cite})`].filter(Boolean);
   const tags = a.tags.map((t) => `#${t.replace(/\s+/g, "-")}`).join(" ");
   return `- ${parts.join(" ")}${tags ? " " + tags : ""}`;
@@ -1821,6 +2002,8 @@ async function reload() {
   $("#refresh").disabled = true;
   try {
     await loadAnnotations();
+    S.unannotated = null;
+    if (S.ui.includeUnannotated) await loadAllPapers();
     const ids = new Set(S.all.map((a) => a.id));
     for (const id of S.selected) if (!ids.has(id)) S.selected.delete(id);
     buildScopeSelect();
@@ -1848,6 +2031,7 @@ function loadUI() {
   if (!["papers", "annotations"].includes(ui.view)) ui.view = "papers";
   if (!Array.isArray(ui.pcols)) ui.pcols = structuredClone(DEFAULT_UI.pcols);
   if (!["none", "paperTag"].includes(ui.pGroupBy)) ui.pGroupBy = "none";
+  if (!Array.isArray(ui.pToggled)) ui.pToggled = [];
   if (!ui.paperTagsColumnAdded) {
     if (!ui.columns.includes("paperTags")) ui.columns = Object.keys(COLUMNS).filter((k) => k === "paperTags" || ui.columns.includes(k));
     ui.paperTagsColumnAdded = true;
@@ -1864,6 +2048,9 @@ function syncViewControls() {
   const papers = S.ui.view === "papers";
   $("#groupBy").hidden = papers;
   $("#pGroupBy").hidden = !papers;
+  $("#unannotatedBtn").hidden = !papers;
+  $("#collapseAllBtn").hidden = !papers;
+  $("#unannotatedBtn").classList.toggle("on", !!S.ui.includeUnannotated);
   $("#export").title = papers ? "Copy the papers shown as Markdown literature notes" : "Copy the rows shown as Markdown (Obsidian-friendly)";
 }
 
@@ -1932,6 +2119,23 @@ function bindControls() {
     { value: "3", label: "3 lines" },
     { value: "0", label: "Full" },
   ]);
+  $("#unannotatedBtn").addEventListener("click", async () => {
+    S.ui.includeUnannotated = !S.ui.includeUnannotated;
+    saveUI();
+    if (S.ui.includeUnannotated && !S.unannotated) {
+      $("#unannotatedBtn").disabled = true;
+      try {
+        await loadAllPapers();
+      } catch (e) {
+        Zotero.logError(e);
+        toast("Couldn't load papers without annotations");
+      } finally {
+        $("#unannotatedBtn").disabled = false;
+      }
+    }
+    render();
+  });
+  $("#collapseAllBtn").addEventListener("click", () => setAllPapersCollapsed(anyPaperExpanded()));
   $("#columnsBtn").addEventListener("click", (e) =>
     S.ui.view === "papers" ? openPaperColumnsPopover(e.currentTarget) : openColumnsPopover(e.currentTarget),
   );

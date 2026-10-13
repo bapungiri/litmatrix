@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <title>Annotations</title>
-  <link rel="stylesheet" href="annotable.css?v=0.7.0" />
+  <link rel="stylesheet" href="annotable.css?v=0.8.0" />
 </head>
 <body>
   <header id="toolbar">
@@ -13,6 +13,8 @@
     <span class="tl">Group</span><span id="groupBy"></span>
     <span class="tl">Rows</span><span id="rowLines"></span>
     <span class="spacer"></span>
+    <button id="unannotatedBtn" class="toggle" title="Also list papers you haven't annotated (only paper-level filters can match them)">Show unannotated</button>
+    <button id="collapseAllBtn" title="Collapse or expand all papers">Collapse all</button>
     <button id="columnsBtn" title="Show or hide columns">Columns ▾</button>
     <button id="colors" title="Name what each highlight color means">Color meanings…</button>
     <button id="export" title="Copy the rows shown as Markdown (Obsidian-friendly)">Copy Markdown</button>
@@ -46,6 +48,6 @@
   </dialog>
 
   <div id="toast" hidden></div>
-  <script src="annotable.js?v=0.7.0"></script>
+  <script src="annotable.js?v=0.8.0"></script>
 </body>
 </html>
