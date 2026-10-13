@@ -1,0 +1,31 @@
+# Push a tag like v0.5.2 (matching plugin/manifest.json) to build the XPI and publish a release.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches manifest version
+        run: |
+          version=$(jq -r .version plugin/manifest.json)
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "Tag $GITHUB_REF_NAME != manifest v$version"; exit 1; }
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Build XPI
+        run: cd plugin && zip -r -X "../zotero-annotable-$VERSION.xpi" .
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: zotero-annotable-${{ env.VERSION }}.xpi
+          generate_release_notes: true

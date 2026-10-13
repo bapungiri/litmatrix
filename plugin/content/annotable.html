@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en" windowtype="zotero:annotable">
+<head>
+  <meta charset="utf-8" />
+  <title>Annotations</title>
+  <link rel="stylesheet" href="annotable.css?v=0.5.2" />
+</head>
+<body>
+  <header id="toolbar">
+    <input id="search" type="search" placeholder="Quick search: text, comments, citekeys, titles, tags…" />
+    <span class="tl">In</span><span id="scope"></span>
+    <span class="tl">Group</span><span id="groupBy"></span>
+    <span class="tl">Rows</span><span id="rowLines"></span>
+    <span class="spacer"></span>
+    <button id="columnsBtn" title="Show or hide columns">Columns ▾</button>
+    <button id="colors" title="Name what each highlight color means">Color meanings…</button>
+    <button id="export" title="Copy the rows shown as Markdown (Obsidian-friendly)">Copy Markdown</button>
+    <button id="refresh" title="Reload annotations">↻</button>
+  </header>
+
+  <section id="filterBar"></section>
+  <div id="status"></div>
+
+  <main id="results">
+    <table id="grid">
+      <colgroup></colgroup>
+      <thead></thead>
+      <tbody></tbody>
+    </table>
+    <div id="empty" class="empty" hidden></div>
+  </main>
+
+  <div id="popover" hidden></div>
+
+  <dialog id="colorDialog">
+    <form method="dialog">
+      <h2>Color meanings</h2>
+      <p class="hint">Give each highlight color the meaning you use it for. Leave blank to use the color's name.</p>
+      <div id="colorRows"></div>
+      <menu>
+        <button value="cancel">Cancel</button>
+        <button id="saveColors" value="save" class="primary">Save</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <div id="toast" hidden></div>
+  <script src="annotable.js?v=0.5.2"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+dist/
+legacy/node_modules/
+legacy/build/
+legacy/dist/
+.DS_Store

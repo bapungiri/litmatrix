@@ -1,0 +1,17 @@
+{
+  "addons": {
+    "zotero-annotable@bapungiri": {
+      "updates": [
+        {
+          "version": "0.1.0",
+          "update_link": "https://github.com/bapungiri/zotero-annotable/releases/latest/download/zotero-annotable.xpi",
+          "applications": {
+            "zotero": {
+              "strict_min_version": "6.999"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

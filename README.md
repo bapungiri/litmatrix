@@ -1,30 +1,39 @@
-# Zotero Annotable (Zotero 7+)
+# Zotero Annotable
 
-Adds a Zotero tab that lists all highlights/annotations in a table with columns: Annotation, Color, Tags, Comments, Citation Key. Built as a Zotero 7+ WebExtension-style plugin.
-
-## Install (temporary)
-
-1. In Zotero 7, open `Tools → Developer → Debug Add-ons…`.
-2. Click `Load Temporary Add-on…` and select the `manifest.json` in this folder.
-3. A new toolbar button “Open Annotations Tab” will appear; click it to open the tab.
-
-## Folder layout
-
-- `manifest.json` — WebExtension manifest.
-- `background.js` — registers the tab and bridges Zotero APIs to the panel.
-- `content/pane.html|css|js` — table UI.
+A Zotero 7–9 plugin that shows every annotation in your library in one place, grouped by **color meaning**, **tag**, **paper (citekey)** or **type**, so you can see at a glance what you highlighted across papers.
 
 ## Features
 
-- Tab shows all annotations with the requested columns.
-- Sorting (click headers), filtering (search box), refresh button.
-- Clicking a row jumps to the source item in the library.
+- **Annotation Browser** tab (Tools → Annotation Browser), or a separate window (Tools → Annotation Browser (Window)) to keep beside the PDF reader.
+- **Notion-style table**: Annotation, Paper tags, Annotation tags, Comment and Citekey columns by default. Use *Columns ▾* to add Page, Title, Authors, Year, Type or Added. Drag a header's right edge to resize a column, and click a header to sort (ascending → descending → back to paper/page order). Rows can show 1 line, 3 lines or the full text.
+- **Filter builder**: *+ Add filter* adds a condition row (Color, Paper tags, Annotation tags, Author, Citekey, Year, Type, Annotation text, Comment, Title), and all rows are combined with **And** or **Or**. Each picker shows how many annotations match. Add a field by adding an entry to `FIELDS` in `annotable.js`.
+- **Color meanings**: *Color meanings…* lets you name what each highlight color means (e.g. green = key finding). These names are used everywhere instead of hex codes.
+- **Quick search** box, and a **library/collection** picker to limit what's shown.
+- Optional **grouping** of rows by color, tag, paper or type. Groups can be collapsed.
+- **Per-paper view**: right-click items in the library → *Show Annotations*. This adds a Citekey filter.
+- **Click a row** to open the PDF at that annotation. Click the citekey to show the paper in the library.
+- **Copy Markdown** (all rows shown, one group, or one row) in an Obsidian-friendly format:
+  `- ==highlight== — comment ([@citekey, p. 4](zotero://open-pdf/library/items/…?annotation=…)) #tag`
+- The view, filters, columns and widths are remembered, and the table updates when you add or edit annotations.
 
-## Development tips
+Citation keys come from Zotero's native *Citation Key* field (which Better BibTeX fills in), with fallbacks to Better BibTeX's key manager and `Citation Key:` in Extra.
 
-- Open the add-on console: `Tools → Developer → Run JavaScript` and choose the add-on context to inspect logs.
-- If the tab does not appear after loading, click the toolbar button or reload the add-on.
+## Install
 
-## Building a signed XPI (optional)
+1. Build: `pwsh ./build.ps1` → `dist/zotero-annotable-<version>.xpi`
+2. Zotero → Tools → Plugins → gear icon → *Install Plugin From File…* → select the `.xpi`.
 
-Zotero accepts unsigned temporary add-ons. For distribution, zip the contents of this folder with `manifest.json` at the root and rename the zip to `.xpi`.
+## Development
+
+The plugin is plain JavaScript, so there's no build step beyond zipping:
+
+- `plugin/bootstrap.js`: registers the menus and opens the tab or window.
+- `plugin/content/annotable.{html,js,css}`: the browser UI. It reads annotations directly from the Zotero database.
+
+For live development, skip the XPI. Close Zotero and create a text file named `zotero-annotable@bapungiri` (no extension) in `<Zotero profile>/extensions/`, containing the absolute path to `plugin/`. Restart Zotero; after editing the UI files, close and reopen the Annotations tab.
+
+`legacy/` holds the earlier TypeScript attempt, kept for reference.
+
+## License
+
+AGPL-3.0-or-later
